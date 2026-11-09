@@ -1,0 +1,6 @@
+{
+  "name": "NammaRide - Pro Ride-Hailing Platform",
+  "description": "Enterprise-grade Uber & Rapido inspired ride-hailing platform with Customer App, Captain App, Super Admin Dashboard, two-stage OTP trip verification, real-time GPS tracking, dynamic fare calculation, and captain wallet payouts in English & Tamil.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
