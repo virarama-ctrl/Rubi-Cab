@@ -12,6 +12,9 @@ export const DEFAULT_FARE_SETTINGS: FareSettings = {
   peakHourSurgeMultiplier: 1.35, // 8:30am - 11am & 5:30pm - 8:30pm
   cancellationFee: 35, // ₹35 cancellation penalty
   minWithdrawalAmount: 200, // ₹200 minimum captain payout
+  maxWithdrawalAmount: 50000, // ₹50,000 maximum single withdrawal limit
+  withdrawalCommissionPercent: 10, // 10% platform commission on withdrawal (admin configurable)
+  withdrawalsSuspended: false, // safety withdrawal freeze switch
   rubiCabCategories: {
     bike: {
       baseFare: 25,

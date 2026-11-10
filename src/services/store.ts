@@ -165,6 +165,7 @@ export const SEED_CAPTAINS: CaptainProfile[] = [
     operatingCity: 'T. Nagar',
     preferredWorkingArea: 'Chennai Central & South',
     approvalStatus: 'approved',
+    kycStatus: 'Approved',
     isOnline: true,
     isBusy: false,
     currentLat: 13.0425,
@@ -177,8 +178,12 @@ export const SEED_CAPTAINS: CaptainProfile[] = [
       bankName: 'HDFC Bank (T. Nagar Branch)',
       accountNumber: '501004829148',
       ifscCode: 'HDFC0001234',
+      accountType: 'savings',
       upiId: 'priya.pink@okhdfcbank',
       verified: true,
+      verificationStatus: 'verified',
+      pennyDropRef: 'PENNY-DROP-NPCI-881920',
+      verifiedAt: Date.now() - 86400000 * 20,
     },
   },
 
@@ -816,11 +821,31 @@ class Store {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const rawCaptains = parsed.captains?.length ? parsed.captains : SEED_CAPTAINS;
+        const normalizedCaptains: CaptainProfile[] = rawCaptains.map((c: any) => ({
+          ...c,
+          kycStatus: c.kycStatus || (c.approvalStatus === 'approved' ? 'Approved' : 'Submitted'),
+          bankDetails: {
+            accountType: c.bankDetails?.accountType || 'savings',
+            verificationStatus: c.bankDetails?.verificationStatus || (c.bankDetails?.verified ? 'verified' : 'penny_drop_pending'),
+            pennyDropRef: c.bankDetails?.pennyDropRef || (c.bankDetails?.verified ? 'PENNY-DROP-NPCI-881920' : undefined),
+            verifiedAt: c.bankDetails?.verifiedAt || (c.bankDetails?.verified ? Date.now() - 86400000 * 15 : undefined),
+            ...c.bankDetails,
+          },
+        }));
+
         return {
           ...parsed,
-          fareSettings: parsed.fareSettings || DEFAULT_FARE_SETTINGS,
+          fareSettings: {
+            ...DEFAULT_FARE_SETTINGS,
+            ...parsed.fareSettings,
+            minWithdrawalAmount: parsed.fareSettings?.minWithdrawalAmount ?? 200,
+            maxWithdrawalAmount: parsed.fareSettings?.maxWithdrawalAmount ?? 50000,
+            withdrawalCommissionPercent: parsed.fareSettings?.withdrawalCommissionPercent ?? 10,
+            withdrawalsSuspended: parsed.fareSettings?.withdrawalsSuspended ?? false,
+          },
           districts: parsed.districts?.length ? parsed.districts : TAMIL_NADU_DISTRICTS,
-          captains: parsed.captains?.length ? parsed.captains : SEED_CAPTAINS,
+          captains: normalizedCaptains,
           currentCustomer: parsed.currentCustomer || DEFAULT_CUSTOMER,
           currentCaptainId: parsed.currentCaptainId || SEED_CAPTAINS[0].id,
           selectedService: parsed.selectedService || 'rubi_cab',
@@ -829,7 +854,7 @@ class Store {
           activeBooking: parsed.activeBooking || null,
           bookingHistory: parsed.bookingHistory || [],
           cancellationRecords: parsed.cancellationRecords?.length ? parsed.cancellationRecords : SEED_CANCELLATIONS,
-          walletTransactions: parsed.walletTransactions || this.getInitialWalletTransactions(),
+          walletTransactions: parsed.walletTransactions?.length ? parsed.walletTransactions : this.getInitialWalletTransactions(),
           withdrawalRequests: parsed.withdrawalRequests || [],
           coupons: parsed.coupons || INITIAL_COUPONS,
           supportTickets: parsed.supportTickets || [],
@@ -865,39 +890,222 @@ class Store {
   }
 
   private getInitialWalletTransactions(): WalletTransaction[] {
+    const now = Date.now();
     return [
+      // Priya Dhandapani (Chennai Auto Captain)
       {
-        id: 'txn_init_01',
-        transactionRef: 'TXN-90214-EARN',
+        id: 'txn_cpt_p_01',
+        transactionRef: 'TXN-90214-CREDIT',
         captainId: 'cpt_priya',
         type: 'ride_earning',
-        amount: 380,
-        description: 'Trip earnings: T. Nagar to Marina Beach',
-        tamilDescription: 'சவாரி வருமானம்: தி. நகர் முதல் மெரினா',
-        balanceAfter: 1250,
-        createdAt: Date.now() - 3600000 * 5,
+        amount: 480,
+        creditAmount: 480,
+        netAmount: 480,
+        description: 'Trip earnings: T. Nagar Panagal Park to Marina Beach Lighthouse',
+        tamilDescription: 'சவாரி வருமானம்: தி. நகர் பனகல் பார்க் முதல் மெரினா',
+        balanceAfter: 480,
+        createdAt: now - 3600000 * 24,
       },
       {
-        id: 'txn_init_02',
-        transactionRef: 'TXN-90215-COMM',
+        id: 'txn_cpt_p_02',
+        transactionRef: 'COMM-90214-LEVY',
         captainId: 'cpt_priya',
         type: 'commission_deduction',
-        amount: -76,
-        description: 'Platform commission deduction (20%)',
-        tamilDescription: 'இயங்குதள கட்டண பிடித்தம் (20%)',
-        balanceAfter: 1174,
-        createdAt: Date.now() - 3600000 * 5,
+        amount: -96,
+        debitAmount: 96,
+        commissionAmount: 96,
+        description: 'Platform technology levy (20%) on RC-882104',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 384,
+        createdAt: now - 3600000 * 24,
       },
       {
-        id: 'txn_init_03',
-        transactionRef: 'TXN-90220-PINK',
+        id: 'txn_cpt_p_03',
+        transactionRef: 'TXN-90228-CREDIT',
+        captainId: 'cpt_priya',
+        type: 'ride_earning',
+        amount: 620,
+        creditAmount: 620,
+        netAmount: 620,
+        description: 'RUBI CAB PINK trip: Anna University to Velachery Phoenix Mall',
+        tamilDescription: 'ரூபி கேப் பிங்க் சவாரி: அண்ணா பல்கலை - வேளச்சேரி',
+        balanceAfter: 1004,
+        createdAt: now - 3600000 * 18,
+      },
+      {
+        id: 'txn_cpt_p_04',
+        transactionRef: 'COMM-90228-LEVY',
+        captainId: 'cpt_priya',
+        type: 'commission_deduction',
+        amount: -124,
+        debitAmount: 124,
+        commissionAmount: 124,
+        description: 'Platform technology levy (20%) on RC-901412',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 880,
+        createdAt: now - 3600000 * 18,
+      },
+      {
+        id: 'txn_cpt_p_05',
+        transactionRef: 'TXN-90310-CASH',
+        captainId: 'cpt_priya',
+        type: 'cash_collection_offset',
+        amount: -70,
+        debitAmount: 70,
+        commissionAmount: 70,
+        description: 'Cash trip commission offset: Customer paid ₹350 cash directly to captain',
+        tamilDescription: 'ரொக்க சவாரி கட்டண பிடித்தம் (வாடிக்கையாளர் நேரடியாக ரொக்கம் வழங்கினார்)',
+        balanceAfter: 810,
+        createdAt: now - 3600000 * 12,
+      },
+      {
+        id: 'txn_cpt_p_06',
+        transactionRef: 'INC-90340-BONUS',
+        captainId: 'cpt_priya',
+        type: 'incentive',
+        amount: 350,
+        creditAmount: 350,
+        netAmount: 350,
+        description: 'Tamil Nadu Weekend Peak Hour Fleet Bonus (5 Completed Trips)',
+        tamilDescription: 'வார இறுதி உச்ச நேர ஊக்கத்தொகை (5 சவாரிகள் நிறைவு)',
+        balanceAfter: 1160,
+        createdAt: now - 3600000 * 6,
+      },
+      {
+        id: 'txn_cpt_p_07',
+        transactionRef: 'TXN-90412-CREDIT',
+        captainId: 'cpt_priya',
+        type: 'ride_earning',
+        amount: 540,
+        creditAmount: 540,
+        netAmount: 540,
+        description: 'Trip earnings: Guindy Metro to DLF Cybercity',
+        tamilDescription: 'சவாரி வருமானம்: கிண்டி முதல் டிஎல்எஃப்',
+        balanceAfter: 1700,
+        createdAt: now - 3600000 * 2,
+      },
+      {
+        id: 'txn_cpt_p_08',
+        transactionRef: 'COMM-90412-LEVY',
+        captainId: 'cpt_priya',
+        type: 'commission_deduction',
+        amount: -108,
+        debitAmount: 108,
+        commissionAmount: 108,
+        description: 'Platform technology levy (20%) on RC-982140',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 1592,
+        createdAt: now - 3600000 * 2,
+      },
+
+      // Deepa Natarajan (Chennai Sedan Captain)
+      {
+        id: 'txn_cpt_d_01',
+        transactionRef: 'TXN-90111-CREDIT',
         captainId: 'cpt_deepa',
         type: 'ride_earning',
-        amount: 420,
-        description: 'RUBI CAB PINK trip: Anna Nagar to Tidel Park',
-        tamilDescription: 'ரூபி கேப் பிங்க் சவாரி வருமானம்: அண்ணா நகர் - டைடல்',
-        balanceAfter: 1680,
-        createdAt: Date.now() - 3600000 * 3,
+        amount: 1450,
+        creditAmount: 1450,
+        netAmount: 1450,
+        description: 'Prime Sedan trip: Chennai Airport to Central Railway Station',
+        tamilDescription: 'பிரைம் செடான் சவாரி: விமான நிலையம் - மத்திய ரயில் நிலையம்',
+        balanceAfter: 1450,
+        createdAt: now - 3600000 * 20,
+      },
+      {
+        id: 'txn_cpt_d_02',
+        transactionRef: 'COMM-90111-LEVY',
+        captainId: 'cpt_deepa',
+        type: 'commission_deduction',
+        amount: -290,
+        debitAmount: 290,
+        commissionAmount: 290,
+        description: 'Platform technology levy (20%) on RC-774120',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 1160,
+        createdAt: now - 3600000 * 20,
+      },
+      {
+        id: 'txn_cpt_d_03',
+        transactionRef: 'TXN-90150-CREDIT',
+        captainId: 'cpt_deepa',
+        type: 'ride_earning',
+        amount: 1200,
+        creditAmount: 1200,
+        netAmount: 1200,
+        description: 'RUBI CAB PINK: OMR Sholinganallur to Kilpauk',
+        tamilDescription: 'ரூபி கேப் பிங்க்: சோழிங்கநல்லூர் முதல் கீழ்ப்பாக்கம்',
+        balanceAfter: 2360,
+        createdAt: now - 3600000 * 8,
+      },
+      {
+        id: 'txn_cpt_d_04',
+        transactionRef: 'COMM-90150-LEVY',
+        captainId: 'cpt_deepa',
+        type: 'commission_deduction',
+        amount: -240,
+        debitAmount: 240,
+        commissionAmount: 240,
+        description: 'Platform technology levy (20%) on RC-819240',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 2120,
+        createdAt: now - 3600000 * 8,
+      },
+
+      // Anitha Sivasankaran (Coimbatore Mini Captain)
+      {
+        id: 'txn_cpt_a_01',
+        transactionRef: 'TXN-90230-CREDIT',
+        captainId: 'cpt_anitha_cbe',
+        type: 'ride_earning',
+        amount: 720,
+        creditAmount: 720,
+        netAmount: 720,
+        description: 'Mini Cab trip: Gandhipuram to Coimbatore Airport',
+        tamilDescription: 'மினி கார் சவாரி: காந்திபுரம் - கோவை விமான நிலையம்',
+        balanceAfter: 720,
+        createdAt: now - 3600000 * 16,
+      },
+      {
+        id: 'txn_cpt_a_02',
+        transactionRef: 'COMM-90230-LEVY',
+        captainId: 'cpt_anitha_cbe',
+        type: 'commission_deduction',
+        amount: -144,
+        debitAmount: 144,
+        commissionAmount: 144,
+        description: 'Platform technology levy (20%) on RC-661920',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 576,
+        createdAt: now - 3600000 * 16,
+      },
+
+      // Senthil Kumar (Coimbatore Innova Captain)
+      {
+        id: 'txn_cpt_s_01',
+        transactionRef: 'TXN-90280-CREDIT',
+        captainId: 'cpt_senthil_cbe',
+        type: 'ride_earning',
+        amount: 2800,
+        creditAmount: 2800,
+        netAmount: 2800,
+        description: '7-Seater Family Outstation: Coimbatore to Ooty Charing Cross',
+        tamilDescription: '7-இருக்கை குடும்ப பயணம்: கோவை முதல் ஊட்டி',
+        balanceAfter: 2800,
+        createdAt: now - 3600000 * 30,
+      },
+      {
+        id: 'txn_cpt_s_02',
+        transactionRef: 'COMM-90280-LEVY',
+        captainId: 'cpt_senthil_cbe',
+        type: 'commission_deduction',
+        amount: -560,
+        debitAmount: 560,
+        commissionAmount: 560,
+        description: 'Platform technology levy (20%) on RC-551029',
+        tamilDescription: 'இயங்குதள தொழில்நுட்ப கட்டணம் (20%)',
+        balanceAfter: 2240,
+        createdAt: now - 3600000 * 30,
       },
     ];
   }
@@ -1134,6 +1342,7 @@ class Store {
       operatingCity: form.operatingCity || form.operatingDistrict,
       preferredWorkingArea: form.preferredWorkingArea,
       approvalStatus: 'submitted',
+      kycStatus: 'Submitted',
       submittedAt: Date.now(),
       isOnline: false,
       isBusy: false,
@@ -1147,8 +1356,10 @@ class Store {
         bankName: form.bankName || 'State Bank of India',
         accountNumber: form.accountNumber,
         ifscCode: form.ifscCode.toUpperCase(),
+        accountType: 'savings',
         upiId: `${form.phone.replace(/[^0-9]/g, '')}@upi`,
-        verified: true,
+        verified: false,
+        verificationStatus: 'penny_drop_pending',
       },
     };
 
@@ -1157,7 +1368,7 @@ class Store {
       form.fullName,
       'captain',
       'NEW_CAPTAIN_APPLICATION_SUBMITTED',
-      `Application ${applicationRef} submitted for ${form.vehicleCategory} in ${form.operatingDistrict} district. Status: Submitted.`
+      `Application ${applicationRef} submitted for ${form.vehicleCategory} in ${form.operatingDistrict} district. KYC Status: Submitted.`
     );
     this.saveState();
 
@@ -1168,20 +1379,67 @@ class Store {
     };
   }
 
+  public maskAccountNumber(acc?: string): string {
+    if (!acc) return '•••• •••• ••••';
+    const clean = acc.replace(/\s+/g, '');
+    if (clean.length <= 4) return clean;
+    return `•••• •••• ${clean.slice(-4)}`;
+  }
+
+  public verifyCaptainBankAccount(captainId: string): {
+    success: boolean;
+    pennyDropRef?: string;
+    error?: string;
+  } {
+    const captain = this.state.captains.find((c) => c.id === captainId);
+    if (!captain) return { success: false, error: 'Captain profile not found' };
+
+    if (!captain.bankDetails.accountNumber || !captain.bankDetails.ifscCode) {
+      return { success: false, error: 'Valid bank account number and IFSC code required for penny-drop test' };
+    }
+
+    const pennyDropRef = `PENNY-DROP-NPCI-${Math.floor(100000 + Math.random() * 900000)}`;
+    captain.bankDetails.verificationStatus = 'verified';
+    captain.bankDetails.verified = true;
+    captain.bankDetails.pennyDropRef = pennyDropRef;
+    captain.bankDetails.verifiedAt = Date.now();
+
+    this.addAuditLog(
+      captain.name,
+      'captain',
+      'BANK_PENNY_DROP_VERIFIED',
+      `Penny-drop bank verification successful for ${captain.bankDetails.bankName} (${this.maskAccountNumber(captain.bankDetails.accountNumber)}). NPCI Settlement Ref: ${pennyDropRef}. Account holder match: 100%.`
+    );
+    this.saveState();
+    return { success: true, pennyDropRef };
+  }
+
   public updateCaptainApproval(
     captainId: string,
     status: CaptainApprovalStatus,
     reason?: string
   ): void {
+    const kycMap: Record<CaptainApprovalStatus, import('../types').KYCStatus> = {
+      approved: 'Approved',
+      submitted: 'Submitted',
+      under_review: 'Under Verification',
+      rejected: 'Rejected',
+      suspended: 'Suspended',
+      reverification_required: 'Reverification Required',
+    };
+
+    const newKyc = kycMap[status] || (status === 'approved' ? 'Approved' : 'Under Verification');
+
     this.state.captains = this.state.captains.map((c) => {
       if (c.id === captainId) {
         return {
           ...c,
           approvalStatus: status,
+          kycStatus: newKyc,
           rejectionReason: reason,
           approvedAt: status === 'approved' ? Date.now() : c.approvedAt,
           rejectedAt: status === 'rejected' ? Date.now() : c.rejectedAt,
-          isOnline: status === 'approved' ? true : false,
+          isOnline: status === 'approved' ? c.isOnline : false,
         };
       }
       return c;
@@ -1191,7 +1449,51 @@ class Store {
       'Super Admin',
       'admin',
       'CAPTAIN_APPROVAL_UPDATED',
-      `Captain ${captainId} status updated to ${status.toUpperCase()}${reason ? ` (Reason: ${reason})` : ''}`
+      `Captain ${captainId} status updated to ${status.toUpperCase()} (KYC: ${newKyc})${reason ? ` (Reason: ${reason})` : ''}`
+    );
+    this.saveState();
+  }
+
+  public updateCaptainKYCStatus(
+    captainId: string,
+    kycStatus: import('../types').KYCStatus,
+    reason?: string
+  ): void {
+    const isApproved = kycStatus === 'Approved';
+    const isRejected = kycStatus === 'Rejected';
+    const isSuspended = kycStatus === 'Suspended';
+    const isReverify = kycStatus === 'Reverification Required';
+
+    const approvalStatus: CaptainApprovalStatus = isApproved
+      ? 'approved'
+      : isRejected
+      ? 'rejected'
+      : isSuspended
+      ? 'suspended'
+      : isReverify
+      ? 'reverification_required'
+      : 'under_review';
+
+    this.state.captains = this.state.captains.map((c) => {
+      if (c.id === captainId) {
+        return {
+          ...c,
+          kycStatus,
+          approvalStatus,
+          rejectionReason: reason,
+          approvedAt: isApproved ? Date.now() : c.approvedAt,
+          rejectedAt: isRejected ? Date.now() : c.rejectedAt,
+          isOnline: isApproved ? c.isOnline : false,
+        };
+      }
+      return c;
+    });
+
+    this.addAuditLog(
+      'Super Admin',
+      'admin',
+      'CAPTAIN_KYC_STATUS_UPDATED',
+      `Captain ${captainId} KYC status set to ${kycStatus}${reason ? ` (Reason: ${reason})` : ''}`
     );
     this.saveState();
   }
@@ -1212,39 +1514,62 @@ class Store {
     }
   }
 
-  // --- WALLET GETTER ---
+  // --- AUTOMATED DOUBLE-ENTRY WALLET LEDGER ---
   public getCaptainWallet(captainId: string): {
     availableBalance: number;
     totalEarnings: number;
     pendingBalance: number;
+    totalWithdrawn: number;
+    totalCommission: number;
     transactions: WalletTransaction[];
   } {
     const txns = this.state.walletTransactions.filter((t) => t.captainId === captainId);
     let totalEarnings = 0;
-    let availableBalance = 1970; // Base balance for demo
-    let pendingBalance = 0;
+    let totalCommission = 0;
+    let grossCredits = 0;
+    let grossDebits = 0;
 
     for (const t of txns) {
       if (t.type === 'ride_earning' || t.type === 'incentive') {
-        totalEarnings += t.amount;
-        availableBalance += t.amount;
-      } else if (t.type === 'commission_deduction' || t.type === 'penalty' || t.type === 'withdrawal') {
-        availableBalance -= Math.abs(t.amount);
+        const val = Math.max(0, t.amount);
+        totalEarnings += val;
+        grossCredits += val;
+      } else if (t.type === 'withdrawal_refund') {
+        grossCredits += Math.max(0, t.amount);
+      } else if (t.type === 'commission_deduction' || t.type === 'cash_collection_offset') {
+        const val = Math.abs(t.amount);
+        totalCommission += val;
+        grossDebits += val;
+      } else if (t.type === 'penalty' || t.type === 'withdrawal' || t.type === 'withdrawal_hold') {
+        grossDebits += Math.abs(t.amount);
       }
     }
 
-    const pendingWithdrawals = this.state.withdrawalRequests
-      .filter((w) => w.captainId === captainId && (w.status === 'pending' || w.status === 'processing'))
+    const withdrawals = this.state.withdrawalRequests.filter((w) => w.captainId === captainId);
+
+    const totalWithdrawn = withdrawals
+      .filter((w) => w.status === 'Paid' || w.status === 'successful')
+      .reduce((sum, w) => sum + (w.netPayoutAmount || w.amount), 0);
+
+    const pendingBalance = withdrawals
+      .filter(
+        (w) =>
+          w.status === 'Requested' ||
+          w.status === 'Processing' ||
+          w.status === 'pending' ||
+          w.status === 'processing'
+      )
       .reduce((sum, w) => sum + w.amount, 0);
 
-    pendingBalance = pendingWithdrawals;
-    availableBalance = Math.max(0, availableBalance - pendingWithdrawals);
+    const availableBalance = Math.max(0, Math.round(grossCredits - grossDebits));
 
     return {
       availableBalance,
-      totalEarnings,
-      pendingBalance,
-      transactions: txns.sort((a, b) => b.createdAt - a.createdAt),
+      totalEarnings: Math.round(totalEarnings),
+      pendingBalance: Math.round(pendingBalance),
+      totalWithdrawn: Math.round(totalWithdrawn),
+      totalCommission: Math.round(totalCommission),
+      transactions: [...txns].sort((a, b) => b.createdAt - a.createdAt),
     };
   }
 
@@ -1712,41 +2037,84 @@ class Store {
     const netEarnings = booking.fareBreakdown.captainNetEarnings;
     const commission = booking.fareBreakdown.platformCommission;
 
-    const earningTxn: WalletTransaction = {
-      id: `wtx_${Date.now()}_earn`,
-      transactionRef: `TXN-${Math.floor(100000 + Math.random() * 900000)}-CREDIT`,
-      captainId,
-      type: 'ride_earning',
-      amount: netEarnings,
-      description: `Trip earnings for ${booking.bookingRef} (${booking.serviceType.toUpperCase()} - ${booking.pickup.name} to ${booking.destination.name})`,
-      tamilDescription: `சவாரி வருமானம்: ${booking.bookingRef}`,
-      bookingId: booking.id,
-      balanceAfter: 0,
-      createdAt: Date.now(),
-    };
+    if (paymentMethod === 'cash') {
+      // CASH RIDE: Passenger hands physical cash directly to captain
+      // Captain holds full fare in hand; RUBI CAB offsets technology levy from captain wallet
+      const cashOffsetTxn: WalletTransaction = {
+        id: `wtx_${Date.now()}_cash_offset`,
+        transactionRef: `OFFSET-${Math.floor(100000 + Math.random() * 900000)}-CASH`,
+        captainId,
+        type: 'cash_collection_offset',
+        amount: -commission,
+        debitAmount: commission,
+        commissionAmount: commission,
+        netAmount: -commission,
+        description: `Cash ride commission offset for ${booking.bookingRef} (Captain collected ₹${booking.finalFare} in cash directly)`,
+        tamilDescription: `ரொக்க சவாரி இயங்குதள கட்டண பிடித்தம்: ${booking.bookingRef} (நேரடி ரொக்கம் ₹${booking.finalFare})`,
+        bookingId: booking.id,
+        paymentReference: txnId,
+        balanceAfter: 0,
+        status: 'completed',
+        createdAt: Date.now(),
+      };
 
-    const commTxn: WalletTransaction = {
-      id: `wtx_${Date.now()}_comm`,
-      transactionRef: `COMM-${Math.floor(100000 + Math.random() * 900000)}-LEVY`,
-      captainId,
-      type: 'commission_deduction',
-      amount: commission,
-      description: `Platform technology levy (20%) on ${booking.bookingRef}`,
-      tamilDescription: `இயங்குதள தொழில்நுட்ப கட்டணம் (20%)`,
-      bookingId: booking.id,
-      balanceAfter: 0,
-      createdAt: Date.now(),
-    };
+      this.state.walletTransactions.push(cashOffsetTxn);
+      this.state.bookingHistory.unshift({ ...booking });
 
-    this.state.walletTransactions.push(earningTxn, commTxn);
-    this.state.bookingHistory.unshift({ ...booking });
+      this.addAuditLog(
+        booking.customerName,
+        'customer',
+        'CASH_PAYMENT_SETTLED',
+        `Cash ride ${booking.bookingRef} settled. Captain ${captainId} collected ₹${booking.finalFare} cash directly. Platform commission of ₹${commission} debited from captain wallet.`
+      );
+    } else {
+      // ONLINE PAYMENT: Settled via digital gateway (UPI / Card / NetBanking / Wallet)
+      // RUBI CAB collects gross fare and credits net earnings to captain wallet
+      const earningTxn: WalletTransaction = {
+        id: `wtx_${Date.now()}_earn`,
+        transactionRef: `TXN-${Math.floor(100000 + Math.random() * 900000)}-CREDIT`,
+        captainId,
+        type: 'ride_earning',
+        amount: netEarnings,
+        creditAmount: netEarnings,
+        commissionAmount: commission,
+        netAmount: netEarnings,
+        description: `Digital trip earnings for ${booking.bookingRef} (${booking.serviceType.toUpperCase()} - ${booking.pickup.name} to ${booking.destination.name})`,
+        tamilDescription: `டிஜிட்டல் சவாரி வருமானம்: ${booking.bookingRef}`,
+        bookingId: booking.id,
+        paymentReference: txnId,
+        balanceAfter: 0,
+        status: 'completed',
+        createdAt: Date.now(),
+      };
 
-    this.addAuditLog(
-      booking.customerName,
-      'customer',
-      'PAYMENT_SETTLED',
-      `Payment of ₹${booking.finalFare} settled via ${paymentMethod.toUpperCase()} (Ref: ${txnId}). Credited ₹${netEarnings} to Captain ${captainId}.`
-    );
+      const commTxn: WalletTransaction = {
+        id: `wtx_${Date.now()}_comm`,
+        transactionRef: `COMM-${Math.floor(100000 + Math.random() * 900000)}-LEVY`,
+        captainId,
+        type: 'commission_deduction',
+        amount: -commission,
+        debitAmount: commission,
+        commissionAmount: commission,
+        description: `Platform technology levy (20%) on ${booking.bookingRef}`,
+        tamilDescription: `இயங்குதள தொழில்நுட்ப கட்டணம் (20%)`,
+        bookingId: booking.id,
+        paymentReference: txnId,
+        balanceAfter: 0,
+        status: 'completed',
+        createdAt: Date.now(),
+      };
+
+      this.state.walletTransactions.push(earningTxn, commTxn);
+      this.state.bookingHistory.unshift({ ...booking });
+
+      this.addAuditLog(
+        booking.customerName,
+        'customer',
+        'ONLINE_PAYMENT_SETTLED',
+        `Payment of ₹${booking.finalFare} settled via ${paymentMethod.toUpperCase()} (Ref: ${txnId}). Credited ₹${netEarnings} net earnings to Captain ${captainId}.`
+      );
+    }
 
     this.saveState();
     return true;
@@ -1894,124 +2262,294 @@ class Store {
     return { success: true, record };
   }
 
-  // --- BANK WITHDRAWALS ---
+  // --- BANK WITHDRAWALS & LEDGER RESERVATIONS ---
 
-  public requestWithdrawal(captainId: string, amount: number): { success: boolean; withdrawal?: WithdrawalRequest; error?: string } {
-    const wallet = this.getCaptainWallet(captainId);
-    if (amount < this.state.fareSettings.minWithdrawalAmount) {
-      return { success: false, error: `Minimum withdrawal amount is ₹${this.state.fareSettings.minWithdrawalAmount}` };
-    }
-    if (amount > wallet.availableBalance) {
-      return { success: false, error: `Requested amount exceeds available balance of ₹${wallet.availableBalance}` };
+  public requestWithdrawal(
+    captainId: string,
+    amount: number
+  ): { success: boolean; withdrawal?: WithdrawalRequest; error?: string } {
+    // 1. Safety freeze check
+    if (this.state.fareSettings.withdrawalsSuspended) {
+      return {
+        success: false,
+        error:
+          this.state.fareSettings.withdrawalSuspensionReason ||
+          'Withdrawal operations are temporarily suspended by platform administration.',
+      };
     }
 
     const captain = this.state.captains.find((c) => c.id === captainId);
     if (!captain) return { success: false, error: 'Captain profile not found' };
 
+    // 2. KYC Approval check (Mandatory - only Approved captains can withdraw)
+    if (captain.kycStatus !== 'Approved') {
+      return {
+        success: false,
+        error: `Withdrawal restricted: KYC status is "${captain.kycStatus || 'Incomplete'}". Only verified captains with Approved KYC can initiate bank payouts.`,
+      };
+    }
+
+    // 3. Bank Account Verification check (Mandatory penny-drop verification)
+    if (captain.bankDetails.verificationStatus !== 'verified') {
+      return {
+        success: false,
+        error:
+          'Bank account is unverified. Please perform penny-drop bank verification before requesting payout.',
+      };
+    }
+
+    // 4. Withdrawal limits check
+    const minAmount = this.state.fareSettings.minWithdrawalAmount || 200;
+    const maxAmount = this.state.fareSettings.maxWithdrawalAmount || 50000;
+    if (amount < minAmount) {
+      return {
+        success: false,
+        error: `Minimum withdrawal amount is ₹${minAmount}`,
+      };
+    }
+    if (amount > maxAmount) {
+      return {
+        success: false,
+        error: `Maximum withdrawal limit per transaction is ₹${maxAmount}`,
+      };
+    }
+
+    // 5. Available balance check
+    const wallet = this.getCaptainWallet(captainId);
+    if (amount > wallet.availableBalance) {
+      return {
+        success: false,
+        error: `Requested amount of ₹${amount} exceeds current available balance of ₹${wallet.availableBalance}`,
+      };
+    }
+
+    // 6. Platform commission calculation (Admin configurable, default 10%)
+    const commissionRatePercent = this.state.fareSettings.withdrawalCommissionPercent ?? 10;
+    const commissionDeducted = Math.round((amount * commissionRatePercent) / 100);
+    const netPayoutAmount = amount - commissionDeducted;
+
+    const withdrawalId = `wdr_${Date.now()}`;
+    const withdrawalRef = `WDR-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    // 7. Atomic In-flight amount reservation to prevent double deductions
+    const holdTxn: WalletTransaction = {
+      id: `wtx_${Date.now()}_hold`,
+      transactionRef: `HOLD-${withdrawalRef}`,
+      captainId,
+      type: 'withdrawal_hold',
+      amount: -amount,
+      debitAmount: amount,
+      commissionAmount: commissionDeducted,
+      netAmount: netPayoutAmount,
+      description: `In-flight payout reservation for ${withdrawalRef} (Net ₹${netPayoutAmount} + ₹${commissionDeducted} commission)`,
+      tamilDescription: `வங்கி பரிமாற்ற முன்பதிவு பிடித்தம்: ${withdrawalRef}`,
+      withdrawalId,
+      balanceAfter: 0,
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    this.state.walletTransactions.push(holdTxn);
+
+    // 8. Create Withdrawal Request
     const withdrawal: WithdrawalRequest = {
-      id: `wdr_${Date.now()}`,
-      withdrawalRef: `WDR-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: withdrawalId,
+      withdrawalRef,
       captainId,
       captainName: captain.name,
       amount,
+      commissionRatePercent,
+      commissionDeducted,
+      netPayoutAmount,
       bankDetails: {
+        accountHolderName: captain.bankDetails.accountHolderName || captain.name,
         bankName: captain.bankDetails.bankName,
         accountNumber: captain.bankDetails.accountNumber,
         ifscCode: captain.bankDetails.ifscCode,
+        accountType: captain.bankDetails.accountType || 'savings',
         upiId: captain.bankDetails.upiId,
       },
-      status: 'pending',
+      status: 'Requested',
+      payoutProvider: 'RazorpayX Direct IMPS',
       requestedAt: Date.now(),
     };
 
     this.state.withdrawalRequests.unshift(withdrawal);
-    this.addAuditLog(captain.name, 'captain', 'WITHDRAWAL_REQUESTED', `Requested ₹${amount} bank payout (Ref: ${withdrawal.withdrawalRef})`);
+    this.addAuditLog(
+      captain.name,
+      'captain',
+      'WITHDRAWAL_REQUESTED',
+      `Requested ₹${amount} bank payout (Net: ₹${netPayoutAmount}, Comm ${commissionRatePercent}%: ₹${commissionDeducted}). Ref: ${withdrawalRef} to ${captain.bankDetails.bankName} (${this.maskAccountNumber(captain.bankDetails.accountNumber)})`
+    );
     this.saveState();
+
     return { success: true, withdrawal };
   }
 
-  public updateWithdrawalStatus(
+  public processWithdrawalPayout(
     withdrawalId: string,
-    status: 'approved' | 'successful' | 'rejected',
-    adminNotes?: string
-  ): void {
+    action: 'authorize_payout' | 'mark_processing' | 'reject_payout' | 'fail_payout',
+    notes?: string
+  ): { success: boolean; error?: string } {
     const w = this.state.withdrawalRequests.find((item) => item.id === withdrawalId);
-    if (!w) return;
+    if (!w) return { success: false, error: 'Withdrawal request not found' };
 
-    w.status = status;
-    w.processedAt = Date.now();
-    w.adminNotes = adminNotes;
-
-    if (status === 'successful') {
+    if (action === 'authorize_payout') {
+      w.status = 'Paid';
+      w.processedAt = Date.now();
       w.payoutTxnId = `IMPS${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+      w.adminNotes = notes || 'Payout processed via RazorpayX Direct IMPS';
+
+      // Convert hold into finalized withdrawal record
       const debitTxn: WalletTransaction = {
-        id: `wtx_${Date.now()}_wdr`,
+        id: `wtx_${Date.now()}_paid`,
         transactionRef: `PAYOUT-${w.withdrawalRef}`,
         captainId: w.captainId,
         type: 'withdrawal',
         amount: -w.amount,
-        description: `Bank withdrawal payout to ${w.bankDetails.bankName} (${w.bankDetails.accountNumber})`,
-        tamilDescription: `வங்கி கணக்கு பணப்பரிமாற்றம்: ₹${w.amount}`,
+        commissionAmount: w.commissionDeducted,
+        netAmount: w.netPayoutAmount,
+        description: `Bank withdrawal payout to ${w.bankDetails.bankName} (${this.maskAccountNumber(w.bankDetails.accountNumber)}) - Net Payout: ₹${w.netPayoutAmount}`,
+        tamilDescription: `வங்கி கணக்கு பணப்பரிமாற்றம்: ₹${w.netPayoutAmount}`,
         withdrawalId: w.id,
+        paymentReference: w.payoutTxnId,
         balanceAfter: 0,
+        status: 'completed',
         createdAt: Date.now(),
       };
+
+      // Remove the hold transaction
+      this.state.walletTransactions = this.state.walletTransactions.filter(
+        (t) => !(t.withdrawalId === w.id && t.type === 'withdrawal_hold')
+      );
       this.state.walletTransactions.push(debitTxn);
+
+      this.addAuditLog(
+        'Super Admin',
+        'admin',
+        'WITHDRAWAL_PAID',
+        `Authorized bank payout of ₹${w.netPayoutAmount} (Gross: ₹${w.amount}, Comm: ₹${w.commissionDeducted}) to Captain ${w.captainName} via ${w.payoutProvider}. IMPS: ${w.payoutTxnId}`
+      );
+    } else if (action === 'mark_processing') {
+      w.status = 'Processing';
+      w.adminNotes = notes || 'Payout dispatched to banking network';
+    } else if (action === 'reject_payout' || action === 'fail_payout') {
+      const isRejected = action === 'reject_payout';
+      w.status = isRejected ? 'Rejected' : 'Failed';
+      w.processedAt = Date.now();
+      w.failureReason = notes || (isRejected ? 'Declined by platform finance auditor' : 'Bank server timeout / IMPS reversal');
+
+      // Remove hold and refund amount back to available balance atomically
+      this.state.walletTransactions = this.state.walletTransactions.filter(
+        (t) => !(t.withdrawalId === w.id && t.type === 'withdrawal_hold')
+      );
+
+      const refundTxn: WalletTransaction = {
+        id: `wtx_${Date.now()}_refund`,
+        transactionRef: `REFUND-${w.withdrawalRef}`,
+        captainId: w.captainId,
+        type: 'withdrawal_refund',
+        amount: w.amount,
+        creditAmount: w.amount,
+        description: `Reversal of held withdrawal ${w.withdrawalRef} (${w.failureReason})`,
+        tamilDescription: `பணப்பரிமாற்ற ரத்து / பணத்திருப்பு: ₹${w.amount}`,
+        withdrawalId: w.id,
+        balanceAfter: 0,
+        status: 'completed',
+        createdAt: Date.now(),
+      };
+      this.state.walletTransactions.push(refundTxn);
+
+      this.addAuditLog(
+        'Super Admin',
+        'admin',
+        isRejected ? 'WITHDRAWAL_REJECTED' : 'WITHDRAWAL_FAILED',
+        `Withdrawal ${w.withdrawalRef} of ₹${w.amount} ${isRejected ? 'rejected' : 'failed'}. Held amount released back to Captain ${w.captainName}'s available balance.`
+      );
     }
 
-    this.addAuditLog('Super Admin', 'admin', 'WITHDRAWAL_PROCESSED', `Payout ${w.withdrawalRef} updated to ${status.toUpperCase()}`);
     this.saveState();
+    return { success: true };
   }
 
-  // --- FARE SETTINGS & ADMIN CONTROLS ---
-
-  public updateFareSettings(settings: FareSettings, adminActor: string = 'Super Admin') {
-    this.state.fareSettings = settings;
-    this.addAuditLog(adminActor, 'admin', 'FARE_SETTINGS_UPDATED', 'Updated dynamic fare matrix');
-    this.saveState();
+  public updateWithdrawalStatus(
+    withdrawalId: string,
+    status: 'approved' | 'successful' | 'rejected' | 'Paid' | 'Processing' | 'Failed',
+    adminNotes?: string
+  ): void {
+    if (status === 'successful' || status === 'approved' || status === 'Paid') {
+      this.processWithdrawalPayout(withdrawalId, 'authorize_payout', adminNotes);
+    } else if (status === 'Processing') {
+      this.processWithdrawalPayout(withdrawalId, 'mark_processing', adminNotes);
+    } else if (status === 'Failed') {
+      this.processWithdrawalPayout(withdrawalId, 'fail_payout', adminNotes);
+    } else {
+      this.processWithdrawalPayout(withdrawalId, 'reject_payout', adminNotes);
+    }
   }
 
-  public setCaptainOnline(captainId: string, isOnline: boolean) {
-    this.state.captains = this.state.captains.map((c) =>
-      c.id === captainId ? { ...c, isOnline } : c
-    );
-    this.saveState();
-  }
+  // --- ADMIN WALLET & COMMISSION CONTROLS ---
 
-  public switchActiveCaptain(captainId: string) {
-    this.state.currentCaptainId = captainId;
-    this.saveState();
-  }
-
-  public toggleCaptainPinkEligibility(captainId: string, isEligible: boolean) {
-    this.state.captains = this.state.captains.map((c) =>
-      c.id === captainId
-        ? {
-            ...c,
-            isPinkEligible: isEligible,
-            serviceEligibility: isEligible ? ['rubi_cab', 'rubi_pink'] : ['rubi_cab'],
-          }
-        : c
-    );
+  public setWithdrawalCommissionPercent(percent: number): void {
+    this.state.fareSettings.withdrawalCommissionPercent = Math.max(0, Math.min(50, percent));
     this.addAuditLog(
       'Super Admin',
       'admin',
-      'CAPTAIN_PINK_ELIGIBILITY_TOGGLED',
-      `Captain ${captainId} RUBI CAB PINK eligibility set to ${isEligible}`
+      'WITHDRAWAL_COMMISSION_UPDATED',
+      `Captain withdrawal platform commission updated to ${percent}%`
     );
     this.saveState();
   }
 
-  public updateCaptainPinkEligibility(captainId: string, isEligible: boolean) {
-    this.toggleCaptainPinkEligibility(captainId, isEligible);
+  public setWithdrawalLimits(min: number, max: number): void {
+    this.state.fareSettings.minWithdrawalAmount = min;
+    this.state.fareSettings.maxWithdrawalAmount = max;
+    this.addAuditLog(
+      'Super Admin',
+      'admin',
+      'WITHDRAWAL_LIMITS_UPDATED',
+      `Withdrawal limits set to Min: ₹${min}, Max: ₹${max}`
+    );
+    this.saveState();
   }
 
-  public updateCaptainKYCStatus(
-    captainId: string,
-    status: CaptainApprovalStatus,
-    reason?: string
-  ) {
-    this.updateCaptainApproval(captainId, status, reason);
+  public toggleWithdrawalsSuspension(suspended: boolean, reason?: string): void {
+    this.state.fareSettings.withdrawalsSuspended = suspended;
+    this.state.fareSettings.withdrawalSuspensionReason = reason;
+    this.addAuditLog(
+      'Super Admin',
+      'admin',
+      'WITHDRAWAL_SUSPENSION_TOGGLED',
+      `Emergency withdrawal suspension set to ${suspended}${reason ? ` (Reason: ${reason})` : ''}`
+    );
+    this.saveState();
+  }
+
+  public generateLedgerCsvReport(): string {
+    const headers = [
+      'Transaction Ref',
+      'Timestamp',
+      'Captain ID',
+      'Type',
+      'Amount (INR)',
+      'Commission (INR)',
+      'Net (INR)',
+      'Description',
+      'Payment Reference',
+    ];
+
+    const rows = this.state.walletTransactions.map((tx) => [
+      tx.transactionRef,
+      new Date(tx.createdAt).toISOString(),
+      tx.captainId,
+      tx.type,
+      tx.amount,
+      tx.commissionAmount || 0,
+      tx.netAmount || tx.amount,
+      `"${tx.description.replace(/"/g, '""')}"`,
+      tx.paymentReference || '',
+    ]);
+
+    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 
   public triggerEmergencySOS(bookingId?: string) {

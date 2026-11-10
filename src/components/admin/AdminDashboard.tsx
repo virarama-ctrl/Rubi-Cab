@@ -101,12 +101,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
   const [newCouponMinFare, setNewCouponMinFare] = useState<number>(60);
   const [newCouponService, setNewCouponService] = useState<'all' | 'rubi_cab' | 'rubi_pink'>('all');
 
+  // Wallet & Payout Administration State
+  const [adminCommissionRate, setAdminCommissionRate] = useState<number>(
+    platformStore.getFareSettings().withdrawalCommissionPercent ?? 10
+  );
+  const [adminMinWithdrawal, setAdminMinWithdrawal] = useState<number>(
+    platformStore.getFareSettings().minWithdrawalAmount ?? 200
+  );
+  const [adminMaxWithdrawal, setAdminMaxWithdrawal] = useState<number>(
+    platformStore.getFareSettings().maxWithdrawalAmount ?? 50000
+  );
+  const [freezeReason, setFreezeReason] = useState<string>('');
+  const [payoutToast, setPayoutToast] = useState<string | null>(null);
+
   useEffect(() => {
     const unsubscribe = platformStore.subscribe(() => {
-      setStoreState({ ...platformStore.getState() });
+      const cur = platformStore.getState();
+      setStoreState({ ...cur });
     });
     return unsubscribe;
   }, []);
+
+  const handleDownloadLedgerCsv = () => {
+    const csv = platformStore.generateLedgerCsvReport();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `rubi_cab_wallet_ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const captains = storeState.captains;
   const bookings = storeState.bookingHistory;
@@ -971,35 +997,514 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* TAB 7: BANK PAYOUTS */}
+      {/* TAB 7: CAPTAIN PERSONAL WALLET, KYC & BANK PAYOUT MANAGEMENT */}
       {activeTab === 'payouts' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-white">Captain Bank Payout Requests</h3>
-          <div className="divide-y divide-slate-800">
-            {withdrawals.map((w) => (
-              <div key={w.id} className="py-3 flex items-center justify-between text-xs">
-                <div>
-                  <div className="font-bold text-white">{w.captainName} - ₹{w.amount}</div>
-                  <div className="text-slate-400 text-[10px] font-mono">
-                    Ref: {w.withdrawalRef} • {w.bankDetails.bankName} ({w.bankDetails.accountNumber})
+        <div className="space-y-6">
+          {/* Toast Notification */}
+          {payoutToast && (
+            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-400 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                <span>{payoutToast}</span>
+              </div>
+              <button onClick={() => setPayoutToast(null)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* 4 Platform Metrics */}
+          {(() => {
+            const paidWithdrawals = withdrawals.filter((w) => w.status === 'Paid' || w.status === 'successful');
+            const totalDisbursed = paidWithdrawals.reduce((sum, w) => sum + (w.netPayoutAmount || w.amount), 0);
+            const inFlightWithdrawals = withdrawals.filter(
+              (w) =>
+                w.status === 'Requested' ||
+                w.status === 'Processing' ||
+                w.status === 'pending' ||
+                w.status === 'processing'
+            );
+            const inFlightTotal = inFlightWithdrawals.reduce((sum, w) => sum + w.amount, 0);
+            const totalPayoutCommission = paidWithdrawals.reduce(
+              (sum, w) => sum + (w.commissionDeducted || Math.round(w.amount * 0.1)),
+              0
+            );
+
+            // Compute total wallet balances across all captains
+            const totalCaptainBalances = captains.reduce((sum, c) => {
+              const w = platformStore.getCaptainWallet(c.id);
+              return sum + w.availableBalance;
+            }, 0);
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl shadow-xl">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Total Settled IMPS Payouts
+                  </div>
+                  <div className="text-2xl font-black text-emerald-400 font-mono mt-1">
+                    ₹{totalDisbursed}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    {paidWithdrawals.length} transactions completed
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {w.status === 'pending' ? (
-                    <button
-                      onClick={() => handleProcessWithdrawal(w.id, 'successful')}
-                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl"
-                    >
-                      Authorize IMPS Payout
-                    </button>
-                  ) : (
-                    <span className="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-xl font-mono">
-                      {w.status.toUpperCase()}
-                    </span>
-                  )}
+
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl shadow-xl">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    In-Flight Payout Queue
+                  </div>
+                  <div className="text-2xl font-black text-amber-400 font-mono mt-1">
+                    ₹{inFlightTotal}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    {inFlightWithdrawals.length} pending requests reserved
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl shadow-xl">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Payout Platform Revenue
+                  </div>
+                  <div className="text-2xl font-black text-sky-400 font-mono mt-1">
+                    ₹{totalPayoutCommission}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    From {storeState.fareSettings.withdrawalCommissionPercent || 10}% platform levy
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl shadow-xl">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                    Total Captain Wallet Float
+                  </div>
+                  <div className="text-2xl font-black text-white font-mono mt-1">
+                    ₹{totalCaptainBalances}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    Across {captains.length} registered Tamil Nadu captains
+                  </div>
                 </div>
               </div>
-            ))}
+            );
+          })()}
+
+          {/* Admin Commission Configuration & Platform Controls Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-amber-400" />
+                  <span>Platform Commission & Withdrawal Policy Configuration</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Configure dynamic commission rates, withdrawal constraints, and emergency compliance controls
+                </p>
+              </div>
+
+              <button
+                onClick={handleDownloadLedgerCsv}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0"
+              >
+                <FileText className="w-4 h-4 text-emerald-400" />
+                <span>Export Ledger CSV</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              {/* Commission Rate % */}
+              <div className="p-4 bg-slate-850 rounded-2xl border border-slate-800 space-y-2">
+                <label className="text-slate-300 font-bold block">
+                  Platform Commission on Withdrawals (%)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={adminCommissionRate}
+                    onChange={(e) => setAdminCommissionRate(parseFloat(e.target.value) || 0)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl font-mono text-white text-xs focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    onClick={() => {
+                      platformStore.setWithdrawalCommissionPercent(adminCommissionRate);
+                      setPayoutToast(`Withdrawal platform commission set to ${adminCommissionRate}%`);
+                      setTimeout(() => setPayoutToast(null), 3000);
+                    }}
+                    className="px-3 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl shrink-0"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Current rate applied: {storeState.fareSettings.withdrawalCommissionPercent || 10}%
+                </div>
+              </div>
+
+              {/* Limits */}
+              <div className="p-4 bg-slate-850 rounded-2xl border border-slate-800 space-y-2">
+                <label className="text-slate-300 font-bold block">
+                  Min & Max Payout Limits (₹)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min ₹"
+                    value={adminMinWithdrawal}
+                    onChange={(e) => setAdminMinWithdrawal(parseInt(e.target.value) || 0)}
+                    className="w-1/2 p-2.5 bg-slate-900 border border-slate-700 rounded-xl font-mono text-white text-xs focus:outline-none focus:border-amber-400"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Max ₹"
+                    value={adminMaxWithdrawal}
+                    onChange={(e) => setAdminMaxWithdrawal(parseInt(e.target.value) || 0)}
+                    className="w-1/2 p-2.5 bg-slate-900 border border-slate-700 rounded-xl font-mono text-white text-xs focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    onClick={() => {
+                      platformStore.setWithdrawalLimits(adminMinWithdrawal, adminMaxWithdrawal);
+                      setPayoutToast(`Withdrawal limits saved (Min: ₹${adminMinWithdrawal}, Max: ₹${adminMaxWithdrawal})`);
+                      setTimeout(() => setPayoutToast(null), 3000);
+                    }}
+                    className="px-3 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl shrink-0"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Default: Min ₹200, Max ₹50,000 per transaction
+                </div>
+              </div>
+
+              {/* Emergency Freeze Toggle */}
+              <div className="p-4 bg-slate-850 rounded-2xl border border-slate-800 space-y-2">
+                <label className="text-slate-300 font-bold block">
+                  Emergency Withdrawal Freeze
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const next = !storeState.fareSettings.withdrawalsSuspended;
+                      platformStore.toggleWithdrawalsSuspension(
+                        next,
+                        next ? freezeReason || 'Scheduled audit by State Transport Compliance' : undefined
+                      );
+                      setPayoutToast(
+                        next ? 'Emergency freeze ACTIVATED. All captain withdrawals suspended.' : 'Emergency freeze lifted.'
+                      );
+                      setTimeout(() => setPayoutToast(null), 3500);
+                    }}
+                    className={`w-full py-2.5 rounded-xl font-bold transition-all ${
+                      storeState.fareSettings.withdrawalsSuspended
+                        ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/20'
+                        : 'bg-slate-800 hover:bg-slate-750 text-slate-300'
+                    }`}
+                  >
+                    {storeState.fareSettings.withdrawalsSuspended
+                      ? 'SUSPENDED (Click to Unfreeze)'
+                      : 'Active (Click to Freeze)'}
+                  </button>
+                </div>
+                {storeState.fareSettings.withdrawalsSuspended && (
+                  <input
+                    type="text"
+                    placeholder="Suspension reason displayed to captains"
+                    value={freezeReason}
+                    onChange={(e) => setFreezeReason(e.target.value)}
+                    className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-[11px] text-white focus:outline-none"
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Withdrawal Requests Queue */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                  <span>Captain Bank Payout Requests Queue</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Direct IMPS authorizations with automatic double-entry hold release or settlement
+                </p>
+              </div>
+              <span className="text-xs text-slate-400 font-mono">
+                {withdrawals.length} total requests
+              </span>
+            </div>
+
+            {withdrawals.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                No bank payout requests currently in the queue.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {withdrawals.map((w) => (
+                  <div
+                    key={w.id}
+                    className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">{w.captainName}</span>
+                        <span className="text-slate-400 font-mono text-[11px]">({w.captainId})</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold font-mono uppercase ${
+                            w.status === 'Paid' || w.status === 'successful'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : w.status === 'Processing' || w.status === 'processing'
+                              ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                              : w.status === 'Requested' || w.status === 'pending'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          }`}
+                        >
+                          {w.status}
+                        </span>
+                      </div>
+
+                      <div className="text-slate-400 text-[11px] font-mono flex flex-wrap gap-x-3">
+                        <span>Ref: {w.withdrawalRef}</span>
+                        <span>Bank: {w.bankDetails.bankName}</span>
+                        <span>
+                          Account: {platformStore.maskAccountNumber(w.bankDetails.accountNumber)} (IFSC: {w.bankDetails.ifscCode})
+                        </span>
+                        <span>Requested: {new Date(w.requestedAt).toLocaleString()}</span>
+                      </div>
+
+                      {w.payoutTxnId && (
+                        <div className="text-[11px] text-emerald-400 font-mono">
+                          Settlement Ref: {w.payoutTxnId} • Provider: {w.payoutProvider || 'RazorpayX Direct IMPS'}
+                        </div>
+                      )}
+                      {w.failureReason && (
+                        <div className="text-[11px] text-rose-400 font-mono">
+                          Reason: {w.failureReason}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="font-mono font-black text-sm text-emerald-400">
+                          Net: ₹{w.netPayoutAmount || Math.round(w.amount * 0.9)}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          Gross: ₹{w.amount} (Comm: ₹{w.commissionDeducted || Math.round(w.amount * 0.1)})
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {(w.status === 'Requested' || w.status === 'pending') && (
+                          <>
+                            <button
+                              onClick={() => {
+                                platformStore.processWithdrawalPayout(w.id, 'authorize_payout');
+                                setPayoutToast(`Authorized IMPS payout of ₹${w.netPayoutAmount || w.amount} for ${w.captainName}`);
+                                setTimeout(() => setPayoutToast(null), 3000);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-md transition-all"
+                            >
+                              Authorize IMPS
+                            </button>
+                            <button
+                              onClick={() => {
+                                platformStore.processWithdrawalPayout(w.id, 'mark_processing');
+                                setPayoutToast(`Marked request ${w.withdrawalRef} as Processing`);
+                                setTimeout(() => setPayoutToast(null), 2500);
+                              }}
+                              className="px-2.5 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold rounded-xl transition-all"
+                            >
+                              Process
+                            </button>
+                            <button
+                              onClick={() => {
+                                platformStore.processWithdrawalPayout(w.id, 'reject_payout', 'Rejected by administrator');
+                                setPayoutToast(`Rejected request ${w.withdrawalRef}. Held funds returned to captain wallet.`);
+                                setTimeout(() => setPayoutToast(null), 3000);
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold rounded-xl transition-all"
+                            >
+                              Reject & Refund
+                            </button>
+                          </>
+                        )}
+
+                        {(w.status === 'Processing' || w.status === 'processing') && (
+                          <>
+                            <button
+                              onClick={() => {
+                                platformStore.processWithdrawalPayout(w.id, 'authorize_payout');
+                                setPayoutToast(`Settled IMPS payout for ${w.captainName}`);
+                                setTimeout(() => setPayoutToast(null), 3000);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl"
+                            >
+                              Complete Payout
+                            </button>
+                            <button
+                              onClick={() => {
+                                platformStore.processWithdrawalPayout(w.id, 'fail_payout', 'Bank gateway timeout');
+                                setPayoutToast(`Marked failed. Funds returned to captain wallet.`);
+                                setTimeout(() => setPayoutToast(null), 3000);
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold rounded-xl"
+                            >
+                              Fail & Refund
+                            </button>
+                          </>
+                        )}
+
+                        {(w.status === 'Paid' || w.status === 'successful') && (
+                          <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl font-bold font-mono">
+                            PAID (IMPS)
+                          </span>
+                        )}
+
+                        {(w.status === 'Rejected' || w.status === 'Failed') && (
+                          <span className="px-3 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl font-bold font-mono">
+                            {w.status.toUpperCase()} (REFUNDED)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Captains Personal Wallet Ledger & KYC Management Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-sky-400" />
+                  <span>Tamil Nadu Captains Personal Wallet & KYC Registry</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Real-time ledger balances, KYC compliance statuses, and penny-drop bank verification
+                </p>
+              </div>
+              <span className="text-xs text-slate-400 font-mono">
+                {captains.length} registered captains
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-bold">
+                    <th className="pb-3 pr-4">Captain</th>
+                    <th className="pb-3 px-3">District</th>
+                    <th className="pb-3 px-3">KYC Status</th>
+                    <th className="pb-3 px-3">Bank Verification</th>
+                    <th className="pb-3 px-3 text-right">Available (₹)</th>
+                    <th className="pb-3 px-3 text-right">In-Flight (₹)</th>
+                    <th className="pb-3 px-3 text-right">Earnings (₹)</th>
+                    <th className="pb-3 px-3 text-right">Withdrawn (₹)</th>
+                    <th className="pb-3 pl-3 text-center">Admin Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {captains.map((c) => {
+                    const w = platformStore.getCaptainWallet(c.id);
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-850/50 transition-colors">
+                        <td className="py-3 pr-4 font-sans">
+                          <div className="font-bold text-white">{c.name}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            {c.id} • {c.vehicleType.toUpperCase()}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-sans text-slate-300">
+                          {c.operatingDistrict || 'Tamil Nadu'}
+                        </td>
+                        <td className="py-3 px-3 font-sans">
+                          <select
+                            value={c.kycStatus || 'Submitted'}
+                            onChange={(e) => {
+                              const newStatus = e.target.value as any;
+                              platformStore.updateCaptainKYCStatus(c.id, newStatus);
+                              setPayoutToast(`Captain ${c.name} KYC updated to ${newStatus}`);
+                              setTimeout(() => setPayoutToast(null), 2500);
+                            }}
+                            className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border focus:outline-none bg-slate-900 ${
+                              c.kycStatus === 'Approved'
+                                ? 'text-emerald-400 border-emerald-500/30'
+                                : c.kycStatus === 'Under Verification'
+                                ? 'text-amber-400 border-amber-500/30'
+                                : c.kycStatus === 'Suspended'
+                                ? 'text-rose-400 border-rose-500/30'
+                                : 'text-sky-400 border-sky-500/30'
+                            }`}
+                          >
+                            <option value="Approved">Approved</option>
+                            <option value="Under Verification">Under Verification</option>
+                            <option value="Submitted">Submitted</option>
+                            <option value="KYC Incomplete">KYC Incomplete</option>
+                            <option value="KYC Not Started">KYC Not Started</option>
+                            <option value="Reverification Required">Reverification Required</option>
+                            <option value="Suspended">Suspended</option>
+                            <option value="Rejected">Rejected</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-3 font-sans">
+                          {c.bankDetails.verificationStatus === 'verified' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Penny-Drop Verified</span>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                const res = platformStore.verifyCaptainBankAccount(c.id);
+                                if (res.success) {
+                                  setPayoutToast(`Penny-drop verified for ${c.name}! Ref: ${res.pennyDropRef}`);
+                                  setTimeout(() => setPayoutToast(null), 3000);
+                                }
+                              }}
+                              className="px-2 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg text-[10px]"
+                            >
+                              Verify ₹1 Test
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-emerald-400">
+                          ₹{w.availableBalance}
+                        </td>
+                        <td className="py-3 px-3 text-right text-amber-400">
+                          ₹{w.pendingBalance}
+                        </td>
+                        <td className="py-3 px-3 text-right text-white">
+                          ₹{w.totalEarnings}
+                        </td>
+                        <td className="py-3 px-3 text-right text-sky-400">
+                          ₹{w.totalWithdrawn}
+                        </td>
+                        <td className="py-3 pl-3 text-center font-sans">
+                          <button
+                            onClick={() => {
+                              platformStore.switchActiveCaptain(c.id);
+                              setPayoutToast(`Switched active captain to ${c.name} for testing`);
+                              setTimeout(() => setPayoutToast(null), 2500);
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-lg text-[11px] font-semibold"
+                          >
+                            Impersonate
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

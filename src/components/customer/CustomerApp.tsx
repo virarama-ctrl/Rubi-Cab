@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MapPin,
   Navigation,
@@ -18,6 +18,8 @@ import {
   ShieldCheck,
   X,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   AlertCircle,
   Tag,
   Check,
@@ -27,6 +29,8 @@ import {
   Loader2,
   Radio,
   SlidersHorizontal,
+  ArrowUpDown,
+  LocateFixed,
 } from 'lucide-react';
 import {
   Booking,
@@ -66,6 +70,9 @@ interface CustomerAppProps {
   lang: Language;
 }
 
+// 3-state expandable bottom sheet for mobile (Rapido style)
+export type FarePanelExpansionState = 'collapsed' | 'half' | 'expanded';
+
 export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
   const [storeState, setStoreState] = useState(platformStore.getState());
 
@@ -87,6 +94,17 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
   const [bookingStage, setBookingStage] = useState<CustomerBookingStage>('LOCATION_SELECTION');
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleType>('auto');
   const [mapSelectionMode, setMapSelectionMode] = useState<'pickup' | 'destination' | null>(null);
+
+  // Expandable / Collapsible Fare Panel State for Mobile (Rapido style)
+  // 'collapsed': Selected vehicle + fare badge + drag handle (leaves maximum map space)
+  // 'half': Choose Your Ride cards list with vehicle images, ETAs and fares
+  // 'expanded': Full vehicle fleet + breakdown + promo + Confirm Ride button
+  const [farePanelState, setFarePanelState] = useState<FarePanelExpansionState>('half');
+
+  // Touch gesture tracking for swipe-up / swipe-down
+  const touchStartY = useRef<number>(0);
+  const touchCurrentY = useRef<number>(0);
+  const isDraggingSheet = useRef<boolean>(false);
 
   // Dedicated Full-Screen / Modal Search State with Tamil Nadu & Places Autocomplete
   const [searchModalMode, setSearchModalMode] = useState<'pickup' | 'destination' | null>(null);
@@ -151,7 +169,12 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
       // If no active booking, stage depends on location choices
       if (!pickup || !destination) {
         setBookingStage('LOCATION_SELECTION');
-      } else if (bookingStage === 'SEARCHING_CAPTAIN' || bookingStage === 'CAPTAIN_ASSIGNED' || bookingStage === 'DRIVER_ARRIVING' || bookingStage === 'TRIP_STARTED') {
+      } else if (
+        bookingStage === 'SEARCHING_CAPTAIN' ||
+        bookingStage === 'CAPTAIN_ASSIGNED' ||
+        bookingStage === 'DRIVER_ARRIVING' ||
+        bookingStage === 'TRIP_STARTED'
+      ) {
         // Reset to location selection when ride completes or resets
         setBookingStage('LOCATION_SELECTION');
       }
@@ -325,6 +348,14 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
     }
   };
 
+  // Swap pickup and destination locations
+  const handleSwapLocations = () => {
+    if (!pickup && !destination) return;
+    const temp = pickup;
+    setPickup(destination);
+    setDestination(temp);
+  };
+
   // Callback from InteractiveMap GoogleMapRouteHandler when road route is computed
   const handleRouteComputed = (distanceMeters: number, durationSeconds: number) => {
     const distanceKm = Math.round((distanceMeters / 1000) * 10) / 10;
@@ -345,7 +376,6 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
   };
 
   // Calculate Distance & Duration
-  // Prefer exact road route data from Google Maps Routes API if available; otherwise calculate Haversine with 1.25 road curvature
   const calculatedDistanceKm =
     roadRouteData?.distanceKm ??
     (pickup && destination
@@ -368,6 +398,53 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
   const activeVehicleConfigs = VEHICLE_CONFIGS.filter((v) =>
     isPink ? v.activeForRubiPink : v.activeForRubiCab
   );
+
+  // Selected vehicle config and fare estimate
+  const currentVehicleConfig =
+    activeVehicleConfigs.find((v) => v.id === selectedVehicle) || activeVehicleConfigs[0];
+  const selectedVehicleFareEstimate = estimateFare(
+    selectedVehicle,
+    calculatedDistanceKm,
+    calculatedDurationMin,
+    fareSettings,
+    { serviceType: selectedService }
+  );
+
+  // Bottom Sheet Swipe Handlers (Swipe up to expand, swipe down to collapse)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+    touchCurrentY.current = e.touches[0].clientY;
+    isDraggingSheet.current = true;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDraggingSheet.current) return;
+    touchCurrentY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingSheet.current) return;
+    isDraggingSheet.current = false;
+    const diff = touchCurrentY.current - touchStartY.current;
+
+    // Threshold of 35px for swipe detection
+    if (diff < -35) {
+      // Swiped upward -> expand
+      setFarePanelState((prev) => (prev === 'collapsed' ? 'half' : 'expanded'));
+    } else if (diff > 35) {
+      // Swiped downward -> collapse
+      setFarePanelState((prev) => (prev === 'expanded' ? 'half' : 'collapsed'));
+    }
+  };
+
+  // Toggle expansion state via chevron / handle click
+  const handleToggleExpansion = () => {
+    setFarePanelState((prev) => {
+      if (prev === 'collapsed') return 'half';
+      if (prev === 'half') return 'expanded';
+      return 'collapsed';
+    });
+  };
 
   // Captain search timeout logic
   useEffect(() => {
@@ -449,7 +526,7 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
   };
 
   return (
-    <div className="relative w-full h-[calc(100vh-68px)] min-h-[580px] bg-slate-100 overflow-hidden font-sans">
+    <div className="relative w-full h-[calc(100vh-68px)] md:h-[calc(100vh-68px)] min-h-[520px] bg-slate-100 overflow-hidden font-sans flex flex-col">
       {/* Toast Notification Banner */}
       {cancellationToast && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white font-bold text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-slate-700 animate-in fade-in duration-200">
@@ -464,8 +541,167 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* 1. MAIN VISUAL ELEMENT: FULL-SCREEN INTERACTIVE MAP */}
-      <div className="absolute inset-0 w-full h-full z-0">
+      {/* =========================================================================
+          SECTION 1: TOP SECTION (COMPACT PICKUP & DESTINATION PANEL)
+          Visible at the very top of mobile screens; also styled cleanly for desktop
+          ========================================================================= */}
+      <div className="relative z-30 w-full bg-white border-b border-slate-200 shadow-sm shrink-0">
+        <div className="max-w-xl mx-auto px-3 py-2 sm:p-3 space-y-1.5">
+          {/* Top Bar: Service Toggle (RUBI CAB / RUBI PINK) + Shortcuts */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center p-0.5 bg-slate-100 rounded-xl text-xs font-bold border border-slate-200">
+              <button
+                type="button"
+                onClick={() => handleToggleService('rubi_cab')}
+                className={`px-2.5 py-1 rounded-lg transition-all text-[11px] font-black ${
+                  !isPink
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                RUBI CAB
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleService('rubi_pink')}
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all text-[11px] font-black ${
+                  isPink
+                    ? 'bg-pink-600 text-white shadow-sm'
+                    : 'text-pink-700 hover:text-pink-900'
+                }`}
+              >
+                <Heart className="w-3 h-3 fill-current" />
+                <span>RUBI PINK</span>
+              </button>
+            </div>
+
+            {/* Quick Actions: Saved Places, SOS & Swap */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowSavedPlacesModal(true)}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs flex items-center justify-center transition-all"
+                title="Saved Places"
+              >
+                <MapPin className="w-3.5 h-3.5 text-slate-700" />
+              </button>
+              <button
+                onClick={handleSwapLocations}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs flex items-center justify-center transition-all"
+                title="Swap Pickup and Destination"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-slate-700" />
+              </button>
+              <button
+                onClick={() => setShowSOSModal(true)}
+                className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
+                title="Emergency SOS"
+              >
+                <ShieldAlert className="w-3 h-3 text-red-600 animate-pulse" />
+                <span className="text-[10px]">SOS</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Location Fields: Pickup & Destination in clean two-row Rapido style */}
+          <div className="relative space-y-1">
+            {/* Connecting visual line between green pickup dot and black destination square */}
+            <div className="absolute left-[13px] top-4 bottom-4 w-0.5 bg-slate-300 z-0 pointer-events-none" />
+
+            {/* Pickup Location Field */}
+            <div
+              onClick={() => {
+                setSearchQuery('');
+                setSearchModalMode('pickup');
+              }}
+              className={`flex items-center gap-2 px-2.5 py-1.5 sm:py-2 rounded-xl border cursor-pointer transition-all relative z-10 ${
+                !pickup
+                  ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
+                  : 'bg-slate-50 hover:bg-slate-100/90 border-slate-200'
+              }`}
+            >
+              <div className="w-3 h-3 rounded-full bg-emerald-500 border border-white shadow-xs shrink-0 flex items-center justify-center">
+                <div className="w-1 h-1 bg-white rounded-full" />
+              </div>
+              <div className="flex-1 min-w-0 pr-1">
+                <div className="text-[9px] uppercase font-bold text-slate-400 leading-none">
+                  FROM / {getTranslation(lang, 'pickupLocation')}
+                </div>
+                <div className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                  {pickup
+                    ? lang === 'ta' && pickup.tamilName
+                      ? pickup.tamilName
+                      : pickup.name
+                    : 'Set pickup location'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDetectCurrentLocation(true);
+                }}
+                className="p-1 text-slate-400 hover:text-sky-600 rounded-md hover:bg-white shrink-0"
+                title="Detect Current GPS Location"
+              >
+                <Navigation className="w-3.5 h-3.5 text-sky-600" />
+              </button>
+            </div>
+
+            {/* Destination Location Field */}
+            <div
+              onClick={() => {
+                setSearchQuery('');
+                setSearchModalMode('destination');
+              }}
+              className={`flex items-center gap-2 px-2.5 py-1.5 sm:py-2 rounded-xl border cursor-pointer transition-all relative z-10 ${
+                pickup && !destination
+                  ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
+                  : 'bg-slate-50 hover:bg-slate-100/90 border-slate-200'
+              }`}
+            >
+              <div className="w-3 h-3 rounded-sm bg-slate-900 border border-white shadow-xs shrink-0" />
+              <div className="flex-1 min-w-0 pr-1">
+                <div className="text-[9px] uppercase font-bold text-slate-400 leading-none">
+                  TO / {getTranslation(lang, 'dropLocation')}
+                </div>
+                <div className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                  {destination
+                    ? lang === 'ta' && destination.tamilName
+                      ? destination.tamilName
+                      : destination.name
+                    : 'Where to? (Search destination)'}
+                </div>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            </div>
+          </div>
+
+          {/* GPS Alert when permission denied */}
+          {gpsStatus === 'denied' && !pickup && (
+            <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-800">
+              <div className="flex items-center gap-1 min-w-0">
+                <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                <span className="text-[10px] truncate">GPS permission off. Select pickup manually.</span>
+              </div>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchModalMode('pickup');
+                }}
+                className="text-[10px] font-bold text-amber-900 underline shrink-0 ml-1"
+              >
+                Search
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* =========================================================================
+          SECTION 2: MIDDLE SECTION (MAP IN THE MIDDLE)
+          Occupies the largest available central area, completely free from overlapping panels
+          ========================================================================= */}
+      <div className="relative flex-1 w-full overflow-hidden z-0">
         <InteractiveMap
           pickup={pickup}
           destination={destination}
@@ -478,165 +714,28 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
           lang={lang}
           className="w-full h-full rounded-none border-none"
         />
-      </div>
 
-      {/* 2. TOP FLOATING CONTROLS: RUBI CAB / PINK TOGGLE & EMERGENCY SOS */}
-      <div className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-20 pointer-events-none">
-        <div className="max-w-md mx-auto pointer-events-auto space-y-2">
-          {/* Service Switcher Bar */}
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200/90 p-2.5 sm:p-3 flex items-center justify-between gap-2">
-            {/* Minimalist Service Switcher: RUBI CAB vs RUBI PINK */}
-            <div className="flex items-center p-1 bg-slate-100 rounded-xl text-xs font-bold border border-slate-200">
-              <button
-                type="button"
-                onClick={() => handleToggleService('rubi_cab')}
-                className={`px-3 py-1 rounded-lg transition-all ${
-                  !isPink
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                RUBI CAB
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleService('rubi_pink')}
-                className={`px-3 py-1 rounded-lg flex items-center gap-1 transition-all ${
-                  isPink
-                    ? 'bg-pink-600 text-white shadow-sm'
-                    : 'text-pink-700 hover:text-pink-900'
-                }`}
-              >
-                <Heart className="w-3 h-3 fill-current" />
-                <span>RUBI PINK</span>
-              </button>
-            </div>
-
-            {/* Emergency SOS & Saved Places Shortcuts */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setShowSavedPlacesModal(true)}
-                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 text-xs flex items-center justify-center transition-all"
-                title="Saved Places"
-              >
-                <MapPin className="w-4 h-4 text-slate-700" />
-              </button>
-              <button
-                onClick={() => setShowSOSModal(true)}
-                className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl border border-red-200 text-xs font-bold flex items-center gap-1 transition-all"
-                title="Emergency SOS"
-              >
-                <ShieldAlert className="w-3.5 h-3.5 text-red-600 animate-pulse" />
-                <span className="hidden sm:inline">SOS</span>
-              </button>
-            </div>
-          </div>
-
-          {/* STEP 1 & 2: Top Location Search Fields (Visible during LOCATION_SELECTION or ROUTE_PREVIEW) */}
-          {!activeBooking && bookingStage !== 'SEARCHING_CAPTAIN' && (
-            <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200/90 p-3 space-y-2">
-              <div className="relative space-y-1.5">
-                {/* Connecting line between pickup dot and destination square */}
-                <div className="absolute left-[15px] top-6 bottom-6 w-0.5 bg-slate-300 z-0" />
-
-                {/* Pickup Location Field */}
-                <div
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSearchModalMode('pickup');
-                  }}
-                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all relative z-10 ${
-                    !pickup
-                      ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
-                      : 'bg-slate-50 hover:bg-slate-100/90 border-slate-200'
-                  }`}
-                >
-                  <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white shadow-sm shrink-0 flex items-center justify-center">
-                    <div className="w-1 h-1 bg-white rounded-full" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 leading-none mb-0.5">
-                      {getTranslation(lang, 'pickupLocation')}
-                    </div>
-                    <div className="text-xs font-bold text-slate-900 truncate">
-                      {pickup
-                        ? lang === 'ta' && pickup.tamilName
-                          ? pickup.tamilName
-                          : pickup.name
-                        : 'Tap to set pickup location'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDetectCurrentLocation(true);
-                    }}
-                    className="p-1 text-slate-400 hover:text-sky-600 rounded-lg hover:bg-white"
-                    title="Detect Current GPS Location"
-                  >
-                    <Navigation className="w-3.5 h-3.5 text-sky-600" />
-                  </button>
-                </div>
-
-                {/* Destination Location Field */}
-                <div
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSearchModalMode('destination');
-                  }}
-                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all relative z-10 ${
-                    pickup && !destination
-                      ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
-                      : 'bg-slate-50 hover:bg-slate-100/90 border-slate-200'
-                  }`}
-                >
-                  <div className="w-3.5 h-3.5 rounded-sm bg-slate-900 border-2 border-white shadow-sm shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 leading-none mb-0.5">
-                      {getTranslation(lang, 'dropLocation')}
-                    </div>
-                    <div className="text-xs font-bold text-slate-900 truncate">
-                      {destination
-                        ? lang === 'ta' && destination.tamilName
-                          ? destination.tamilName
-                          : destination.name
-                        : 'Where to? (Search destination)'}
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
-                </div>
-              </div>
-
-              {/* GPS Alert when permission denied */}
-              {gpsStatus === 'denied' && !pickup && (
-                <div className="p-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-800">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span className="text-[11px] truncate">GPS permission off. Select pickup manually.</span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSearchModalMode('pickup');
-                    }}
-                    className="text-[10px] font-bold text-amber-900 underline shrink-0 ml-1"
-                  >
-                    Search
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+        {/* Floating Quick Recenter Button on Map */}
+        <div className="absolute bottom-4 right-4 z-20">
+          <button
+            onClick={() => handleDetectCurrentLocation(true)}
+            className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-900 rounded-full shadow-lg border border-slate-200 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+            title="Recenter GPS Location"
+          >
+            <LocateFixed className="w-5 h-5 text-slate-700" />
+          </button>
         </div>
       </div>
 
-      {/* 3. DYNAMIC BOTTOM SHEET ACCORDING TO ROUTE-FIRST STAGES */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
-        <div className="max-w-xl mx-auto pointer-events-auto">
-          {/* Active Booking Flow Card */}
+      {/* =========================================================================
+          SECTION 3: BOTTOM SECTION (EXPANDABLE & COLLAPSIBLE RAPIDO-STYLE FARE SHEET)
+          Supports 3 states: 'collapsed' (max map space), 'half' (vehicle cards), 'expanded' (full details & confirm)
+          Swipable upward / downward + Tap handle to toggle
+          ========================================================================= */}
+      <div className="relative z-30 w-full shrink-0">
+        <div className="max-w-xl mx-auto">
+          {/* Active Ride Card (When ride is searching, accepted, in progress, etc.) */}
           {activeBooking ? (
-            /* --- ACTIVE RIDE CARD WITH UNIQUE TWO-STAGE OTP --- */
             <div className="bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 sm:p-5 space-y-3.5">
               <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto -mt-1 mb-1" />
 
@@ -679,18 +778,17 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                 </div>
               </div>
 
-              {/* STEP 7: CAPTAIN SEARCHING SCREEN WITH RADAR ANIMATION */}
+              {/* Radar searching screen */}
               {activeBooking.status === 'searching' && (
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
-                  {/* Radar Sonar Animation */}
-                  <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                  <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
                     <div className="absolute inset-0 rounded-full bg-slate-900/10 animate-ping" />
-                    <div className="absolute w-14 h-14 rounded-full bg-slate-900/15 animate-pulse" />
-                    <div className="relative w-12 h-12 rounded-2xl bg-white shadow-lg border border-slate-200 flex items-center justify-center z-10">
+                    <div className="absolute w-12 h-12 rounded-full bg-slate-900/15 animate-pulse" />
+                    <div className="relative w-10 h-10 rounded-2xl bg-white shadow-md border border-slate-200 flex items-center justify-center z-10">
                       <VehicleIllustration
                         type={activeBooking.vehicleType}
                         serviceType={activeBooking.serviceType}
-                        size="md"
+                        size="sm"
                       />
                     </div>
                   </div>
@@ -707,68 +805,32 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                     </div>
                   </div>
 
-                  {/* Trip Summary Mini Card */}
-                  <div className="p-2.5 bg-white rounded-xl border border-slate-200 text-left space-y-1 text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-700 truncate">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="truncate font-semibold">{activeBooking.pickup.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-slate-700 truncate">
-                      <div className="w-2 h-2 rounded-sm bg-slate-900 shrink-0" />
-                      <span className="truncate font-semibold">{activeBooking.destination.name}</span>
-                    </div>
-                    <div className="pt-1 flex items-center justify-between border-t border-slate-100 text-[11px]">
-                      <span className="text-slate-500">
-                        {activeBooking.estimatedDistanceKm} km • {activeBooking.estimatedDurationMin} mins
-                      </span>
-                      <span className="font-bold text-slate-900">₹{activeBooking.estimatedFare}</span>
-                    </div>
-                  </div>
-
                   <button
                     onClick={handleOpenCancelModal}
-                    className="w-full py-2.5 bg-white hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 hover:border-red-200 rounded-xl text-xs font-bold transition-all shadow-xs"
+                    className="w-full py-2 bg-white hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-xs"
                   >
                     Cancel Ride
                   </button>
                 </div>
               )}
 
-              {/* SEARCH TIMEOUT SCREEN WITH RETRY & CANCEL OPTIONS */}
+              {/* Timeout Screen */}
               {activeBooking.status === 'searching_timeout' && (
-                <div className="p-4 bg-amber-50 rounded-2xl border-2 border-amber-200 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
-                    <AlertCircle className="w-6 h-6 text-amber-600" />
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-center space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                    <AlertCircle className="w-5 h-5 text-amber-600" />
                   </div>
-                  <div>
-                    <h3 className="text-sm font-black text-slate-900">
-                      No Captains Available Right Now
-                    </h3>
-                    <p className="text-xs text-slate-600 mt-1">
-                      We searched for {SEARCH_TIMEOUT_SECONDS}s across your pickup area, but all nearby captains are currently busy.
-                    </p>
-                  </div>
-
-                  {/* Route Summary */}
-                  <div className="p-2.5 bg-white rounded-xl border border-amber-200 text-left text-xs text-slate-700">
-                    <div className="flex items-center justify-between font-semibold">
-                      <span>
-                        {activeBooking.pickup.name.split(',')[0]} → {activeBooking.destination.name.split(',')[0]}
-                      </span>
-                      <span className="font-mono text-slate-900 font-bold">₹{activeBooking.estimatedFare}</span>
-                    </div>
-                  </div>
-
+                  <h3 className="text-sm font-black text-slate-900">No Captains Available Right Now</h3>
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={() => platformStore.retrySearchingCaptain()}
-                      className="flex-1 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-black rounded-xl shadow-md transition-all"
+                      className="flex-1 py-2 bg-slate-900 text-white text-xs font-black rounded-xl"
                     >
                       Retry Search
                     </button>
                     <button
                       onClick={handleOpenCancelModal}
-                      className="flex-1 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-all"
+                      className="flex-1 py-2 bg-white text-slate-700 text-xs font-bold rounded-xl border border-slate-300"
                     >
                       Cancel Ride
                     </button>
@@ -776,46 +838,46 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                 </div>
               )}
 
-              {/* CRITICAL TWO-STAGE OTP DISPLAY */}
-              {/* Stage 1: Opening OTP */}
-              {(activeBooking.status === 'accepted' || activeBooking.status === 'captain_arriving' || activeBooking.status === 'arrived') && (
-                <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-center shadow-sm">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-900 mb-0.5 flex items-center justify-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-amber-700" />
+              {/* OTP Handshake */}
+              {(activeBooking.status === 'accepted' ||
+                activeBooking.status === 'captain_arriving' ||
+                activeBooking.status === 'arrived') && (
+                <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-center shadow-xs">
+                  <div className="text-[10px] font-bold uppercase text-amber-900 flex items-center justify-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-700" />
                     <span>{getTranslation(lang, 'openingOtpTitle')}</span>
                   </div>
-                  <div className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-slate-900 my-1 py-1 bg-white rounded-xl border border-amber-200 inline-block px-6 shadow-sm">
+                  <div className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-slate-900 my-1 py-0.5 bg-white rounded-xl border border-amber-200 inline-block px-5 shadow-xs">
                     {activeBooking.openingOtp}
                   </div>
-                  <p className="text-xs text-amber-800 font-medium">
+                  <p className="text-[11px] text-amber-800 font-medium">
                     {getTranslation(lang, 'openingOtpSubtitle')}
                   </p>
                 </div>
               )}
 
-              {/* Stage 2: Closing OTP */}
               {activeBooking.status === 'destination_reached' && (
-                <div className="p-3.5 rounded-2xl bg-purple-50 border-2 border-purple-300 text-center shadow-sm animate-pulse">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-purple-900 mb-0.5 flex items-center justify-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-purple-700" />
+                <div className="p-3 rounded-2xl bg-purple-50 border-2 border-purple-300 text-center shadow-xs animate-pulse">
+                  <div className="text-[10px] font-bold uppercase text-purple-900 flex items-center justify-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-purple-700" />
                     <span>{getTranslation(lang, 'closingOtpTitle')}</span>
                   </div>
-                  <div className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-slate-900 my-1 py-1 bg-white rounded-xl border border-purple-200 inline-block px-6 shadow-sm">
+                  <div className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-slate-900 my-1 py-0.5 bg-white rounded-xl border border-purple-200 inline-block px-5 shadow-xs">
                     {activeBooking.closingOtp}
                   </div>
-                  <p className="text-xs text-purple-800 font-medium">
+                  <p className="text-[11px] text-purple-800 font-medium">
                     {getTranslation(lang, 'closingOtpSubtitle')}
                   </p>
                 </div>
               )}
 
-              {/* Captain Details & Exotel Masked Call */}
+              {/* Captain Details */}
               {activeBooking.captain && (
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center gap-3">
+                <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center gap-3">
                   <img
                     src={activeBooking.captain.photoUrl}
                     alt={activeBooking.captain.name}
-                    className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                    className="w-11 h-11 rounded-xl object-cover border border-slate-200 shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
@@ -830,38 +892,31 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                     <div className="text-[11px] text-slate-600 font-medium truncate">
                       {activeBooking.captain.vehicleModel}
                     </div>
-                    <div className="text-[10px] font-mono text-slate-900 font-bold flex items-center gap-2">
-                      <span>{activeBooking.captain.vehicleRegNumber}</span>
-                      {activeBooking.captain.isPinkEligible && (
-                        <span className="text-[9px] px-1.5 rounded bg-pink-100 text-pink-700 font-bold">
-                          PINK Certified
-                        </span>
-                      )}
+                    <div className="text-[10px] font-mono text-slate-900 font-bold">
+                      {activeBooking.captain.vehicleRegNumber}
                     </div>
                   </div>
-
-                  {/* Masked Virtual Call Button */}
                   <button
                     onClick={() => platformStore.initiateVirtualCall(activeBooking.id, 'rider')}
-                    className="p-2.5 rounded-xl bg-white hover:bg-slate-100 text-sky-600 border border-slate-200 shadow-sm transition-all flex flex-col items-center justify-center shrink-0"
+                    className="p-2 rounded-xl bg-white text-sky-600 border border-slate-200 shadow-xs flex flex-col items-center justify-center shrink-0"
                     title="Exotel Masked Virtual Call"
                   >
                     <Phone className="w-4 h-4 text-sky-600" />
-                    <span className="text-[9px] font-bold text-slate-500 mt-0.5">Call</span>
+                    <span className="text-[8px] font-bold text-slate-500">Call</span>
                   </button>
                 </div>
               )}
 
-              {/* Live Trip Progress Bar */}
+              {/* Progress Bar */}
               {activeBooking.status === 'in_progress' && (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 font-medium">Trip in progress to destination</span>
+                    <span className="text-slate-600 font-medium">Trip in progress</span>
                     <span className="text-slate-900 font-bold font-mono">
                       {Math.round(progressPercent)}%
                     </span>
                   </div>
-                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
                     <div
                       className="bg-slate-900 h-full transition-all duration-500 rounded-full"
                       style={{ width: `${progressPercent}%` }}
@@ -870,89 +925,30 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                 </div>
               )}
 
-              {/* Trip Completion & Payment Settlement */}
+              {/* Trip Completion & Settlement */}
               {activeBooking.status === 'completed' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
                     <span className="text-xs text-slate-600 font-semibold">Total Fare</span>
-                    <span className="text-lg font-black text-slate-900 font-mono">
+                    <span className="text-base font-black text-slate-900 font-mono">
                       ₹{activeBooking.finalFare}
                     </span>
                   </div>
 
                   {activeBooking.paymentStatus === 'completed' ? (
-                    <div className="space-y-2">
-                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>Payment Settled ({activeBooking.paymentMethod?.toUpperCase()})</span>
-                        </span>
-                        <button
-                          onClick={() => setShowInvoiceModal(true)}
-                          className="text-[11px] underline font-bold"
-                        >
-                          Invoice
-                        </button>
-                      </div>
-
-                      {/* Rating Form */}
-                      {!ratingSubmitted ? (
-                        <form onSubmit={handleSubmitRating} className="space-y-2 pt-1">
-                          <div className="text-xs font-bold text-slate-800">
-                            Rate your ride with {activeBooking.captain?.name}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button
-                                key={star}
-                                type="button"
-                                onClick={() => setRatingStars(star)}
-                                className="p-1"
-                              >
-                                <Star
-                                  className={`w-5 h-5 ${
-                                    star <= ratingStars
-                                      ? 'fill-amber-400 text-amber-400'
-                                      : 'text-slate-300'
-                                  }`}
-                                />
-                              </button>
-                            ))}
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="Feedback (e.g. Smooth driving, very polite)"
-                            value={ratingReview}
-                            onChange={(e) => setRatingReview(e.target.value)}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none"
-                          />
-                          <button
-                            type="submit"
-                            className="w-full py-2 bg-slate-900 text-white font-bold rounded-xl text-xs"
-                          >
-                            Submit Rating
-                          </button>
-                        </form>
-                      ) : (
-                        <div className="text-xs text-emerald-600 text-center font-semibold">
-                          Thank you for your rating!
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => {
-                          platformStore.resetActiveBooking();
-                          setBookingStage('LOCATION_SELECTION');
-                        }}
-                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition-all"
-                      >
-                        Book Another Ride
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => {
+                        platformStore.resetActiveBooking();
+                        setBookingStage('LOCATION_SELECTION');
+                      }}
+                      className="w-full py-2.5 bg-slate-100 text-slate-800 font-bold rounded-xl text-xs"
+                    >
+                      Book Another Ride
+                    </button>
                   ) : (
                     <button
                       onClick={() => setShowPaymentModal(true)}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+                      className="w-full py-3 bg-emerald-600 text-white font-black rounded-xl text-xs shadow-md"
                     >
                       Proceed to Pay ₹{activeBooking.finalFare}
                     </button>
@@ -960,438 +956,404 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
                 </div>
               )}
 
-              {/* Cancel ride button for accepted or arrived states */}
+              {/* Cancel Button */}
               {(activeBooking.status === 'accepted' ||
                 activeBooking.status === 'captain_arriving' ||
                 activeBooking.status === 'arrived') && (
                 <button
                   onClick={handleOpenCancelModal}
-                  className="w-full py-2.5 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-200 rounded-xl text-xs font-semibold transition-all mt-2"
+                  className="w-full py-2 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-200 rounded-xl text-xs font-semibold transition-all"
                 >
                   Cancel Ride
                 </button>
               )}
             </div>
           ) : (
-            /* --- PRE-BOOKING FLOW: ROUTE-FIRST STAGES (STEP 3 to 6) --- */
-            <div>
-              {/* STEP 1: INITIAL STATE WHEN PICKUP OR DESTINATION MISSING */}
-              {(!pickup || !destination) && (
-                <div className="bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 sm:p-5 space-y-3">
-                  <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />
-                  <div className="text-center py-2">
-                    <h3 className="text-base font-black text-slate-900">
-                      {!pickup ? 'Where are you starting from?' : 'Where do you want to go?'}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                      {!pickup
-                        ? 'Set your pickup location across Tamil Nadu or use GPS current location.'
-                        : 'Choose your destination to preview the exact road route and travel duration.'}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSearchModalMode(!pickup ? 'pickup' : 'destination');
-                      }}
-                      className="p-3 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all"
-                    >
-                      <Search className="w-4 h-4" />
-                      <span>{!pickup ? 'Search Pickup' : 'Search Drop'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDetectCurrentLocation(true)}
-                      className="p-3 bg-sky-50 hover:bg-sky-100 text-sky-800 rounded-2xl text-xs font-bold border border-sky-200 flex items-center justify-center gap-2 transition-all"
-                    >
-                      <Navigation className="w-4 h-4 text-sky-600" />
-                      <span>Use My GPS</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 3 & 4: ROUTE PREVIEW & "CONFIRM YOUR LOCATIONS" CARD */}
-              {pickup && destination && (bookingStage === 'ROUTE_PREVIEW' || bookingStage === 'LOCATION_SELECTION') && (
-                <div className="bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 sm:p-5 space-y-4">
-                  <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto -mt-1 mb-1" />
-
-                  {/* Header Title */}
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-slate-900" />
-                      <h3 className="text-xs font-black tracking-wider uppercase text-slate-900">
-                        CONFIRM YOUR LOCATIONS
-                      </h3>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                      Step 1 of 2
-                    </span>
-                  </div>
-
-                  {/* Road Route Metrics Badge */}
-                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 font-bold text-slate-900">
-                      <span className="text-base font-black font-mono">{calculatedDistanceKm} km</span>
-                      <span className="text-slate-300">•</span>
-                      <span className="text-slate-700">~{calculatedDurationMin} mins journey</span>
-                    </div>
-                    {pickupDistrict && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700">
-                        {pickupDistrict.name} District
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Pickup Row with Edit Button */}
-                  <div className="p-3 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between gap-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-xs shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Pickup Location</div>
-                        <div className="text-xs font-bold text-slate-900 truncate">{pickup.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{pickup.address}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSearchModalMode('pickup');
-                      }}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 transition-all"
-                    >
-                      <Edit2 className="w-3 h-3 text-slate-600" />
-                      <span>EDIT</span>
-                    </button>
-                  </div>
-
-                  {/* Destination Row with Edit Button */}
-                  <div className="p-3 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between gap-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className="w-4 h-4 rounded-sm bg-slate-900 border-2 border-white shadow-xs shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Destination Location</div>
-                        <div className="text-xs font-bold text-slate-900 truncate">{destination.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{destination.address}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSearchModalMode('destination');
-                      }}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 transition-all"
-                    >
-                      <Edit2 className="w-3 h-3 text-slate-600" />
-                      <span>EDIT</span>
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-slate-400 text-center italic">
-                    Tip: Drag the green or black pin on the map to fine-tune exact gate or pickup spot.
-                  </p>
-
-                  {/* STEP 4: "CONFIRM LOCATIONS" BUTTON (Advances to Vehicle Selection) */}
-                  <button
-                    onClick={() => setBookingStage('VEHICLE_SELECTION')}
-                    className="w-full py-3.5 bg-slate-900 hover:bg-black text-white font-black rounded-2xl text-xs sm:text-sm tracking-wider uppercase shadow-xl flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
-                  >
-                    <span>CONFIRM LOCATIONS</span>
-                    <ArrowRight className="w-4 h-4 stroke-[3]" />
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 5: VEHICLE SELECTION ("Choose Your Ride") */}
-              {pickup && destination && bookingStage === 'VEHICLE_SELECTION' && (
-                <div
-                  className={`bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 sm:p-5 space-y-3.5 transition-all ${
-                    isPink ? 'border-pink-200' : 'border-slate-200'
-                  }`}
-                >
-                  <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto -mt-1 mb-1" />
-
-                  {/* Top Bar with Back Button to Edit Locations */}
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => setBookingStage('ROUTE_PREVIEW')}
-                      className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 p-1 rounded-lg"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      <span>Back to Locations</span>
-                    </button>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-slate-900 font-mono">
-                        {calculatedDistanceKm} km • ~{calculatedDurationMin} mins
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Title & Service Availability Check */}
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-900">Choose Your Ride</h3>
-                    {isPink && (
-                      <span className="text-[10px] px-2 py-0.5 bg-pink-50 text-pink-700 font-bold rounded-md border border-pink-200">
-                        Women Safety Fleet
-                      </span>
-                    )}
-                  </div>
-
-                  {/* District Captain Availability Notice */}
-                  {pickupDistrict && nearbyCaptains.length === 0 && (
-                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-xs text-amber-800">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span className="text-[11px]">
-                        Captains in {pickupDistrict.name} will be dispatched statewide.
-                      </span>
-                    </div>
+            /* ===================================================================
+               PRE-BOOKING FLOW: EXPANDABLE RAPIDO-STYLE BOTTOM FARE SHEET
+               =================================================================== */
+            <div
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              className={`bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 transition-all duration-300 ease-out select-none ${
+                isPink ? 'border-pink-200' : 'border-slate-200'
+              }`}
+            >
+              {/* Drag Handle & Expansion Toggle Header */}
+              <div
+                onClick={handleToggleExpansion}
+                className="pt-2.5 pb-1 px-4 cursor-pointer flex flex-col items-center justify-center hover:bg-slate-50 rounded-t-3xl transition-colors"
+                title="Swipe or tap to expand/collapse fare panel"
+              >
+                <div className="w-12 h-1.5 bg-slate-300 rounded-full mb-1" />
+                <div className="flex items-center gap-1 text-[10px] uppercase font-bold text-slate-400">
+                  <span>
+                    {farePanelState === 'collapsed'
+                      ? 'Tap or swipe up for all rides'
+                      : farePanelState === 'half'
+                      ? 'Choose Your Ride • Swipe for details'
+                      : 'Tap or swipe down to minimize'}
+                  </span>
+                  {farePanelState === 'collapsed' ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-500 animate-bounce" />
+                  ) : farePanelState === 'expanded' ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  ) : (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
                   )}
+                </div>
+              </div>
 
-                  {/* VEHICLE CARDS: Bike, Auto, Mini, Sedan, Seven Seater */}
-                  <div className="space-y-2 max-h-56 sm:max-h-64 overflow-y-auto pr-1">
-                    {activeVehicleConfigs.map((veh) => {
-                      const isSelected = selectedVehicle === veh.id;
-                      const fareEstimate = estimateFare(
-                        veh.id,
-                        calculatedDistanceKm,
-                        calculatedDurationMin,
-                        fareSettings,
-                        { serviceType: selectedService }
-                      );
-
-                      return (
-                        <div
-                          key={veh.id}
-                          onClick={() => setSelectedVehicle(veh.id)}
-                          className={`p-2.5 sm:p-3 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${
-                            isSelected
-                              ? isPink
-                                ? 'bg-pink-50/80 border-pink-500 shadow-md ring-1 ring-pink-500'
-                                : 'bg-slate-50 border-slate-900 shadow-md ring-1 ring-slate-900'
-                              : 'bg-white border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          {/* Vehicle Image & Category Badge */}
-                          <div className="relative w-16 h-12 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0 overflow-hidden">
-                            <img
-                              src={veh.imageUrl}
-                              alt={veh.name}
-                              className="w-full h-full object-cover"
-                            />
-                            <div className="absolute -bottom-1 -right-1 bg-white/95 rounded-tl-lg p-0.5 border-t border-l border-slate-200 shadow-xs">
-                              <VehicleIllustration
-                                type={veh.id}
-                                serviceType={selectedService}
-                                size="sm"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-black text-xs sm:text-sm text-slate-900">
-                                  {lang === 'ta' ? veh.tamilName : veh.name}
-                                </span>
-                                <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 rounded text-slate-600 font-medium">
-                                  {veh.capacity} seats
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-sm font-black text-slate-900 font-mono">
-                                  ₹{fareEstimate.estimatedFare}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-0.5">
-                              <span className="text-emerald-600 font-semibold">
-                                {veh.etaMinutes} min away
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                Base ₹{fareEstimate.breakdown.baseFare} • ₹{fareEstimate.breakdown.distanceCharge} dist
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Promo Code Toggle */}
-                  <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowPromoInput(!showPromoInput)}
-                      className="flex items-center gap-1 text-slate-700 hover:text-slate-900 font-semibold"
+              {/* Content depending on Expansion State */}
+              <div className="px-4 pb-4 sm:px-5 sm:pb-5 space-y-3">
+                {/* 1. STATE: COLLAPSED MODE (Leaves maximum space for the map) */}
+                {farePanelState === 'collapsed' && (
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    {/* Selected Vehicle Thumbnail & Info */}
+                    <div
+                      onClick={() => setFarePanelState('half')}
+                      className="flex items-center gap-2.5 min-w-0 cursor-pointer"
                     >
-                      <Tag className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Promo: {appliedCoupon}</span>
-                    </button>
-                    <span className="text-[11px] text-emerald-600 font-bold">5% GST & Tolls included</span>
-                  </div>
+                      <div className="w-12 h-10 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0">
+                        <VehicleIllustration
+                          type={currentVehicleConfig.id}
+                          serviceType={selectedService}
+                          size="sm"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-xs sm:text-sm text-slate-900 truncate">
+                            {lang === 'ta' ? currentVehicleConfig.tamilName : currentVehicleConfig.name}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 rounded text-slate-600 font-medium">
+                            {currentVehicleConfig.capacity} seats
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-emerald-600 font-semibold truncate">
+                          {currentVehicleConfig.etaMinutes} min away • {calculatedDistanceKm} km
+                        </div>
+                      </div>
+                    </div>
 
-                  {showPromoInput && (
-                    <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-                      <input
-                        type="text"
-                        placeholder="Coupon (e.g. RUBI50)"
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                        className="bg-transparent text-slate-900 font-mono uppercase focus:outline-none w-full text-xs px-2"
-                      />
+                    {/* Fare & Confirm Action */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <div className="text-sm sm:text-base font-black text-slate-900 font-mono">
+                          ₹{selectedVehicleFareEstimate.estimatedFare}
+                        </div>
+                        <div className="text-[9px] text-slate-400">incl. GST</div>
+                      </div>
+
                       <button
-                        type="button"
-                        onClick={() => {
-                          setAppliedCoupon(couponCode);
-                          setShowPromoInput(false);
-                        }}
-                        className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[10px]"
+                        onClick={handleConfirmRideBooking}
+                        disabled={isCreatingBooking || (!pickup || !destination)}
+                        className={`px-4 py-2.5 rounded-xl font-black text-xs tracking-wider uppercase shadow-md flex items-center gap-1.5 transition-all ${
+                          isPink
+                            ? 'bg-pink-600 hover:bg-pink-700 text-white'
+                            : 'bg-slate-900 hover:bg-black text-white'
+                        }`}
                       >
-                        Apply
+                        <span>BOOK</span>
+                        <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
                       </button>
                     </div>
-                  )}
-
-                  {/* Advance to Ride Confirmation Review Step */}
-                  <button
-                    onClick={() => setBookingStage('RIDE_CONFIRMATION')}
-                    className={`w-full py-3.5 font-black rounded-2xl shadow-xl flex items-center justify-center gap-2 text-sm tracking-wide transition-all active:scale-[0.99] ${
-                      isPink
-                        ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-500/25'
-                        : 'bg-slate-900 hover:bg-black text-white shadow-slate-900/20'
-                    }`}
-                  >
-                    <span>Review & Confirm Ride</span>
-                    <ArrowRight className="w-4 h-4 stroke-[3]" />
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 6: CONFIRM RIDE SUMMARY CARD */}
-              {pickup && destination && bookingStage === 'RIDE_CONFIRMATION' && (
-                <div className="bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 p-4 sm:p-5 space-y-4">
-                  <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto -mt-1 mb-1" />
-
-                  {/* Back to Vehicle Selection */}
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => setBookingStage('VEHICLE_SELECTION')}
-                      className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 p-1 rounded-lg"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      <span>Back to Vehicles</span>
-                    </button>
-                    <span className="text-[11px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      Final Review
-                    </span>
                   </div>
+                )}
 
-                  {/* Summary Card */}
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                    {/* Selected Vehicle Row */}
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
-                          <VehicleIllustration
-                            type={selectedVehicle}
-                            serviceType={selectedService}
-                            size="sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-[10px] font-bold uppercase text-slate-400">Selected Vehicle</div>
-                          <div className="text-sm font-black text-slate-900 capitalize">
-                            {selectedVehicle.replace('_', ' ')}
+                {/* 2. STATE: HALF EXPANDED (Choose Your Ride list with Vehicle Cards) */}
+                {farePanelState === 'half' && (
+                  <div className="space-y-3">
+                    {/* Route Metrics Row */}
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 font-bold text-slate-900">
+                        <span className="text-sm font-black font-mono">{calculatedDistanceKm} km</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-600">~{calculatedDurationMin} mins ride</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {pickupDistrict && (
+                          <span className="px-2 py-0.5 bg-slate-100 rounded-md font-semibold text-slate-700 text-[10px]">
+                            {pickupDistrict.name}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => setFarePanelState('expanded')}
+                          className="text-[10px] font-bold text-slate-500 hover:text-slate-900 underline ml-1"
+                        >
+                          View Fare Details
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Vehicle Selection Cards (Rapido style scrollable list) */}
+                    <div className="space-y-2 max-h-48 sm:max-h-56 overflow-y-auto pr-1">
+                      {activeVehicleConfigs.map((veh) => {
+                        const isSelected = selectedVehicle === veh.id;
+                        const fareEstimate = estimateFare(
+                          veh.id,
+                          calculatedDistanceKm,
+                          calculatedDurationMin,
+                          fareSettings,
+                          { serviceType: selectedService }
+                        );
+
+                        return (
+                          <div
+                            key={veh.id}
+                            onClick={() => setSelectedVehicle(veh.id)}
+                            className={`p-2.5 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${
+                              isSelected
+                                ? isPink
+                                ? 'bg-pink-50/80 border-pink-500 shadow-md ring-1 ring-pink-500'
+                                : 'bg-slate-50 border-slate-900 shadow-md ring-1 ring-slate-900'
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            {/* Vehicle Photo & Illustration Badge */}
+                            <div className="relative w-14 h-11 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0 overflow-hidden">
+                              <img
+                                src={veh.imageUrl}
+                                alt={veh.name}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute -bottom-1 -right-1 bg-white/95 rounded-tl-lg p-0.5 border-t border-l border-slate-200 shadow-xs">
+                                <VehicleIllustration
+                                  type={veh.id}
+                                  serviceType={selectedService}
+                                  size="sm"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-black text-xs sm:text-sm text-slate-900">
+                                    {lang === 'ta' ? veh.tamilName : veh.name}
+                                  </span>
+                                  <span className="text-[9px] px-1.5 py-0.2 bg-slate-100 rounded text-slate-600 font-medium">
+                                    {veh.capacity} seats
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-xs sm:text-sm font-black text-slate-900 font-mono">
+                                    ₹{fareEstimate.estimatedFare}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 mt-0.5">
+                                <span className="text-emerald-600 font-semibold">
+                                  {veh.etaMinutes} min away
+                                </span>
+                                <span className="text-slate-400">
+                                  Base ₹{fareEstimate.breakdown.baseFare} • ₹{fareEstimate.breakdown.distanceCharge} dist
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Estimated Fare</div>
-                        <div className="text-lg font-black font-mono text-slate-900">
-                          ₹{estimateFare(
-                            selectedVehicle,
-                            calculatedDistanceKm,
-                            calculatedDurationMin,
-                            fareSettings,
-                            { serviceType: selectedService }
-                          ).estimatedFare}
-                        </div>
-                      </div>
+                        );
+                      })}
                     </div>
 
-                    {/* Route Details */}
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-start gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0" />
-                        <div className="min-w-0">
-                          <span className="font-bold text-slate-500 text-[10px] uppercase block">Pickup</span>
-                          <span className="font-bold text-slate-900 block truncate">{pickup.name}</span>
-                          <span className="text-[11px] text-slate-500 block truncate">{pickup.address}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-2">
-                        <div className="w-2.5 h-2.5 rounded-sm bg-slate-900 mt-1 shrink-0" />
-                        <div className="min-w-0">
-                          <span className="font-bold text-slate-500 text-[10px] uppercase block">Destination</span>
-                          <span className="font-bold text-slate-900 block truncate">{destination.name}</span>
-                          <span className="text-[11px] text-slate-500 block truncate">{destination.address}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Metrics Row */}
-                    <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-xs font-semibold text-slate-700">
-                      <span>Distance: {calculatedDistanceKm} km</span>
-                      <span>Duration: ~{calculatedDurationMin} mins</span>
-                      <span>Promo: {appliedCoupon}</span>
-                    </div>
+                    {/* Quick Confirm Button */}
+                    <button
+                      onClick={handleConfirmRideBooking}
+                      disabled={isCreatingBooking || (!pickup || !destination)}
+                      className={`w-full py-3 rounded-2xl font-black text-xs sm:text-sm tracking-wider uppercase shadow-xl flex items-center justify-center gap-2 transition-all active:scale-[0.99] ${
+                        isPink
+                          ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-500/25'
+                          : 'bg-slate-900 hover:bg-black text-white shadow-slate-900/20'
+                      }`}
+                    >
+                      {isCreatingBooking ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Dispatching Captain...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>
+                            {isPink
+                              ? `Confirm RUBI PINK ${selectedVehicle.toUpperCase()}`
+                              : `Confirm ${selectedVehicle.toUpperCase()} • ₹${selectedVehicleFareEstimate.estimatedFare}`}
+                          </span>
+                          <ArrowRight className="w-4 h-4 stroke-[3]" />
+                        </>
+                      )}
+                    </button>
                   </div>
+                )}
 
-                  {/* Service Availability Warning if Pickup District is inactive */}
-                  {!isDistrictServiceActive && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>
-                        Service is not yet activated in {pickupDistrict?.name}. Please choose an active district.
-                      </span>
+                {/* 3. STATE: FULLY EXPANDED (Full options, fare breakdown, promo, details & Confirm button) */}
+                {farePanelState === 'expanded' && (
+                  <div className="space-y-3.5 max-h-[70vh] overflow-y-auto pr-1">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black tracking-wider uppercase text-slate-900">
+                          FARE DETAILS & VEHICLE OPTIONS
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setFarePanelState('half')}
+                        className="text-[11px] font-bold text-slate-500 hover:text-slate-900 flex items-center gap-0.5"
+                      >
+                        <span>Minimize</span>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  )}
 
-                  {/* PROMINENT "CONFIRM RIDE" BUTTON (Dispatches booking & starts captain searching) */}
-                  <button
-                    onClick={handleConfirmRideBooking}
-                    disabled={isCreatingBooking || !isDistrictServiceActive}
-                    className={`w-full py-4 font-black rounded-2xl shadow-xl flex items-center justify-center gap-2 text-sm sm:text-base tracking-wider uppercase transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isPink
-                        ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-500/25'
-                        : 'bg-slate-900 hover:bg-black text-white shadow-slate-900/25'
-                    }`}
-                  >
-                    {isCreatingBooking ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Dispatching Ride...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>CONFIRM RIDE</span>
-                        <ArrowRight className="w-5 h-5 stroke-[3]" />
-                      </>
+                    {/* Vehicle List */}
+                    <div className="space-y-2">
+                      {activeVehicleConfigs.map((veh) => {
+                        const isSelected = selectedVehicle === veh.id;
+                        const fareEstimate = estimateFare(
+                          veh.id,
+                          calculatedDistanceKm,
+                          calculatedDurationMin,
+                          fareSettings,
+                          { serviceType: selectedService }
+                        );
+
+                        return (
+                          <div
+                            key={veh.id}
+                            onClick={() => setSelectedVehicle(veh.id)}
+                            className={`p-2.5 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${
+                              isSelected
+                                ? isPink
+                                ? 'bg-pink-50/80 border-pink-500 shadow-md ring-1 ring-pink-500'
+                                : 'bg-slate-50 border-slate-900 shadow-md ring-1 ring-slate-900'
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="relative w-14 h-11 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0 overflow-hidden">
+                              <img
+                                src={veh.imageUrl}
+                                alt={veh.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="font-black text-xs text-slate-900">
+                                  {lang === 'ta' ? veh.tamilName : veh.name}
+                                </span>
+                                <span className="text-xs font-black text-slate-900 font-mono">
+                                  ₹{fareEstimate.estimatedFare}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 mt-0.5">
+                                <span className="text-emerald-600 font-semibold">{veh.etaMinutes} min away</span>
+                                <span className="text-slate-400">
+                                  Base ₹{fareEstimate.breakdown.baseFare} • ₹{fareEstimate.breakdown.distanceCharge} dist
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Detailed Fare Breakdown Card */}
+                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5 text-xs text-slate-700">
+                      <div className="font-bold text-slate-900 text-xs mb-1">
+                        Fare Breakdown ({selectedVehicle.toUpperCase()})
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>Base Fare</span>
+                        <span className="font-mono">₹{selectedVehicleFareEstimate.breakdown.baseFare}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>Distance Charge ({calculatedDistanceKm} km)</span>
+                        <span className="font-mono">₹{selectedVehicleFareEstimate.breakdown.distanceCharge}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>Estimated Ride Time (~{calculatedDurationMin} mins)</span>
+                        <span className="font-mono">₹{selectedVehicleFareEstimate.breakdown.timeCharge}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>GST (5%) & Tolls</span>
+                        <span className="font-mono">₹{selectedVehicleFareEstimate.breakdown.gstAmount}</span>
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-200 flex justify-between font-bold text-slate-900 text-xs">
+                        <span>Total Estimated Fare</span>
+                        <span className="font-mono text-sm">₹{selectedVehicleFareEstimate.estimatedFare}</span>
+                      </div>
+                    </div>
+
+                    {/* Promo Code Toggle */}
+                    <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowPromoInput(!showPromoInput)}
+                        className="flex items-center gap-1 text-slate-700 hover:text-slate-900 font-semibold"
+                      >
+                        <Tag className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Promo Code: {appliedCoupon}</span>
+                      </button>
+                      <span className="text-[11px] text-emerald-600 font-bold">5% GST included</span>
+                    </div>
+
+                    {showPromoInput && (
+                      <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                        <input
+                          type="text"
+                          placeholder="Coupon (e.g. RUBI50)"
+                          value={couponCode}
+                          onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                          className="bg-transparent text-slate-900 font-mono uppercase focus:outline-none w-full text-xs px-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppliedCoupon(couponCode);
+                            setShowPromoInput(false);
+                          }}
+                          className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[10px]"
+                        >
+                          Apply
+                        </button>
+                      </div>
                     )}
-                  </button>
-                </div>
-              )}
+
+                    {/* Prominent Confirm Ride Button */}
+                    <button
+                      onClick={handleConfirmRideBooking}
+                      disabled={isCreatingBooking || (!pickup || !destination)}
+                      className={`w-full py-3.5 rounded-2xl font-black text-sm tracking-wider uppercase shadow-xl flex items-center justify-center gap-2 transition-all active:scale-[0.99] ${
+                        isPink
+                          ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-500/25'
+                          : 'bg-slate-900 hover:bg-black text-white shadow-slate-900/20'
+                      }`}
+                    >
+                      {isCreatingBooking ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Dispatching Captain...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>CONFIRM RIDE NOW • ₹{selectedVehicleFareEstimate.estimatedFare}</span>
+                          <ArrowRight className="w-4 h-4 stroke-[3]" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* 4. DEDICATED LOCATION SEARCH MODAL (UBER / RAPIDO STYLE) */}
+      {/* =========================================================================
+          SECTION 4: DEDICATED LOCATION SEARCH MODAL (UBER / RAPIDO STYLE)
+          ========================================================================= */}
       {searchModalMode && (
         <div className="fixed inset-0 z-50 flex flex-col bg-white animate-in fade-in duration-200">
           {/* Search Header */}
@@ -1405,9 +1367,7 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
             </button>
             <div className="flex-1">
               <h2 className="text-sm font-black text-slate-900">
-                {searchModalMode === 'pickup'
-                  ? 'Set Pickup Location'
-                  : 'Set Destination'}
+                {searchModalMode === 'pickup' ? 'Set Pickup Location' : 'Set Destination'}
               </h2>
               <p className="text-[11px] text-slate-500">
                 Search across all 38 Tamil Nadu districts & Google Places
@@ -1535,7 +1495,9 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* 5. MODALS */}
+      {/* =========================================================================
+          SECTION 5: SYSTEM MODALS
+          ========================================================================= */}
       {showPaymentModal && activeBooking && (
         <PaymentModal
           booking={activeBooking}
@@ -1561,7 +1523,7 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
         />
       )}
 
-      {/* SAVED PLACES MODAL */}
+      {/* Saved Places Modal */}
       {showSavedPlacesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-slate-200">
@@ -1599,7 +1561,7 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* CANCELLATION MODAL */}
+      {/* Cancellation Modal */}
       <CancellationModal
         isOpen={showCancelModal}
         booking={activeBooking}

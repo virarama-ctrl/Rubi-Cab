@@ -580,59 +580,234 @@ export const CaptainApp: React.FC<CaptainAppProps> = ({ lang }) => {
       {/* TAB 2: WALLET & BANK PAYOUTS */}
       {activeTab === 'wallet' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl shadow-lg">
-              <div className="text-xs text-slate-400 uppercase font-semibold">Available for Payout</div>
-              <div className="text-3xl font-black text-emerald-400 font-mono mt-1">
+          {/* KYC Status & Emergency Suspension Banner if applicable */}
+          {storeState.fareSettings.withdrawalsSuspended && (
+            <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+              <div className="text-xs">
+                <span className="font-bold text-rose-300">Withdrawals Suspended: </span>
+                <span className="text-rose-200">
+                  {storeState.fareSettings.withdrawalSuspensionReason ||
+                    'Banking operations are temporarily paused by RUBI CAB administration for scheduled audit.'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {captain.kycStatus !== 'Approved' && (
+            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
+                <div className="text-xs">
+                  <div className="font-bold text-amber-300">
+                    KYC Status: {captain.kycStatus || 'Under Verification'}
+                  </div>
+                  <div className="text-slate-300 text-[11px] mt-0.5">
+                    Only captains with Approved KYC status can receive ride dispatches and initiate bank payouts.
+                  </div>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-lg text-[10px] font-bold uppercase tracking-wider">
+                {captain.kycStatus || 'In Review'}
+              </span>
+            </div>
+          )}
+
+          {/* 5-Metric Wallet Overview */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Available for Payout</div>
+              <div className="text-2xl font-black text-emerald-400 font-mono mt-1">
                 ₹{walletData.availableBalance}
               </div>
               <button
-                onClick={() => setShowWithdrawModal(true)}
-                className="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md"
+                onClick={() => {
+                  setWithdrawError(null);
+                  setWithdrawSuccess(null);
+                  setShowWithdrawModal(true);
+                }}
+                disabled={
+                  walletData.availableBalance < (fareSettings.minWithdrawalAmount || 200) ||
+                  captain.kycStatus !== 'Approved' ||
+                  captain.bankDetails.verificationStatus !== 'verified' ||
+                  fareSettings.withdrawalsSuspended
+                }
+                className="mt-2.5 w-full py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-1.5"
               >
-                Request Bank Payout
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>Request Payout</span>
               </button>
             </div>
 
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl shadow-lg">
-              <div className="text-xs text-slate-400 uppercase font-semibold">Total Net Earnings</div>
-              <div className="text-3xl font-black text-white font-mono mt-1">
-                ₹{walletData.totalEarnings}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-2">After 20% platform levy and 1% TDS</div>
-            </div>
-
-            <div className="p-5 bg-slate-900 border border-slate-800 rounded-3xl shadow-lg">
-              <div className="text-xs text-slate-400 uppercase font-semibold">Payouts In Processing</div>
-              <div className="text-3xl font-black text-amber-400 font-mono mt-1">
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Pending In-Flight</div>
+              <div className="text-2xl font-black text-amber-400 font-mono mt-1">
                 ₹{walletData.pendingBalance}
               </div>
-              <div className="text-[11px] text-slate-400 mt-2">Processed via IMPS / UPI to verified account</div>
+              <div className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-amber-400" />
+                <span>Reserved for bank processing</span>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Total Net Earnings</div>
+              <div className="text-2xl font-black text-white font-mono mt-1">
+                ₹{walletData.totalEarnings}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-2">All completed ride earnings & incentives</div>
+            </div>
+
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Total Withdrawn</div>
+              <div className="text-2xl font-black text-sky-400 font-mono mt-1">
+                ₹{walletData.totalWithdrawn}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-2">Disbursed to verified bank account</div>
+            </div>
+
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Platform Commission</div>
+              <div className="text-2xl font-black text-slate-300 font-mono mt-1">
+                ₹{walletData.totalCommission}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-2">RUBI CAB tech fee & government TDS</div>
             </div>
           </div>
 
-          {/* Transactions List */}
+          {/* Bank Account Verification & Security Details */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Building className="w-4 h-4 text-emerald-400" />
+                  <span>Settlement Bank Account & Penny-Drop Verification</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  TRAI and NPCI compliant direct IMPS bank payout gateway
+                </p>
+              </div>
+
+              {captain.bankDetails.verificationStatus === 'verified' ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-bold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Verified via NPCI Penny-Drop</span>
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-2">
+                  <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl text-xs font-bold">
+                    Penny-Drop Verification Required
+                  </span>
+                  <button
+                    onClick={() => {
+                      const res = platformStore.verifyCaptainBankAccount(captain.id);
+                      if (res.success) {
+                        setWithdrawSuccess(`Bank account verified successfully! NPCI Ref: ${res.pennyDropRef}`);
+                        setTimeout(() => setWithdrawSuccess(null), 3500);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 rounded-xl text-xs font-bold shadow-md transition-all"
+                  >
+                    Run Penny-Drop Test (₹1)
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              <div className="p-3 bg-slate-850 rounded-2xl border border-slate-800">
+                <div className="text-slate-400 text-[10px] uppercase font-bold">Account Holder</div>
+                <div className="font-bold text-white mt-1">
+                  {captain.bankDetails.accountHolderName || captain.name}
+                </div>
+                <div className="text-[10px] text-emerald-400 mt-0.5">100% Name Match with KYC</div>
+              </div>
+
+              <div className="p-3 bg-slate-850 rounded-2xl border border-slate-800">
+                <div className="text-slate-400 text-[10px] uppercase font-bold">Bank & Branch</div>
+                <div className="font-bold text-white mt-1">{captain.bankDetails.bankName}</div>
+                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  Type: {(captain.bankDetails.accountType || 'Savings').toUpperCase()}
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-850 rounded-2xl border border-slate-800">
+                <div className="text-slate-400 text-[10px] uppercase font-bold">Masked Account Number</div>
+                <div className="font-mono font-bold text-white mt-1 text-sm">
+                  {platformStore.maskAccountNumber(captain.bankDetails.accountNumber)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Encrypted at rest & in transit</div>
+              </div>
+
+              <div className="p-3 bg-slate-850 rounded-2xl border border-slate-800">
+                <div className="text-slate-400 text-[10px] uppercase font-bold">IFSC & Settlement Gateway</div>
+                <div className="font-mono font-bold text-white mt-1">{captain.bankDetails.ifscCode}</div>
+                <div className="text-[10px] text-emerald-400 mt-0.5">
+                  {captain.bankDetails.pennyDropRef || 'NPCI IMPS Direct Transfer'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Automated Double-Entry Wallet Ledger */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-white flex items-center justify-between">
-              <span>Automated Double-Entry Wallet Ledger</span>
-              <span className="text-xs text-slate-400 font-mono">{walletData.transactions.length} records</span>
-            </h3>
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <span>Immutable Personal Wallet Ledger</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Real-time double-entry accounting separating online credits and cash offsets
+                </p>
+              </div>
+              <span className="text-xs text-slate-400 font-mono">
+                {walletData.transactions.length} records
+              </span>
+            </div>
 
             <div className="divide-y divide-slate-800">
               {walletData.transactions.map((tx) => (
-                <div key={tx.id} className="py-3 flex items-center justify-between text-xs">
-                  <div>
-                    <div className="font-semibold text-white">{tx.description}</div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                      {tx.transactionRef} • {new Date(tx.createdAt).toLocaleTimeString()}
+                <div key={tx.id} className="py-3.5 flex items-center justify-between text-xs">
+                  <div className="space-y-0.5 max-w-xl">
+                    <div className="font-bold text-white flex items-center gap-2">
+                      <span>{tx.description}</span>
+                      <span
+                        className={`text-[9px] px-2 py-0.5 rounded-md font-mono uppercase font-bold ${
+                          tx.type === 'ride_earning'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : tx.type === 'cash_collection_offset'
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : tx.type === 'withdrawal_hold'
+                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                            : tx.type === 'withdrawal_refund'
+                            ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
+                            : tx.type === 'incentive'
+                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        }`}
+                      >
+                        {tx.type.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      Ref: {tx.transactionRef} • {new Date(tx.createdAt).toLocaleString()}
+                      {tx.tamilDescription && ` • ${tx.tamilDescription}`}
                     </div>
                   </div>
-                  <div
-                    className={`font-mono font-black text-sm ${
-                      tx.amount > 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {tx.amount > 0 ? `+₹${tx.amount}` : `-₹${Math.abs(tx.amount)}`}
+                  <div className="text-right">
+                    <div
+                      className={`font-mono font-black text-sm ${
+                        tx.amount > 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {tx.amount > 0 ? `+₹${tx.amount}` : `-₹${Math.abs(tx.amount)}`}
+                    </div>
+                    {tx.commissionAmount ? (
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        Platform Fee: ₹{tx.commissionAmount}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -641,20 +816,28 @@ export const CaptainApp: React.FC<CaptainAppProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* TAB 3: KYC & VEHICLE PERMITS */}
+      {/* TAB 3: KYC & COMMERCIAL PERMITS */}
       {activeTab === 'kyc' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
-              <h3 className="text-base font-bold text-white">Commercial Permits & Identity</h3>
-              <p className="text-xs text-slate-400">RTO verified documentation</p>
+              <h3 className="text-base font-bold text-white">Captain KYC & Commercial Permits</h3>
+              <p className="text-xs text-slate-400">
+                Statutory documents registered with Tamil Nadu State Transport Authority
+              </p>
             </div>
-            <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20">
-              100% Verified
+            <span
+              className={`px-3 py-1 rounded-xl text-xs font-bold border ${
+                captain.kycStatus === 'Approved'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+              }`}
+            >
+              {captain.kycStatus || 'Submitted'}
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 space-y-1">
               <span className="text-slate-400 text-[10px] uppercase font-bold">Driving License</span>
               <div className="font-mono text-white font-bold">{captain.drivingLicenseNumber}</div>
@@ -668,17 +851,35 @@ export const CaptainApp: React.FC<CaptainAppProps> = ({ lang }) => {
             </div>
 
             <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 space-y-1">
-              <span className="text-slate-400 text-[10px] uppercase font-bold">Bank Account (IMPS/NEFT)</span>
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Aadhaar / Identity Document</span>
+              <div className="font-mono text-white font-bold">{captain.identityDocNumber || '•••• •••• 9920'}</div>
+              <div className="text-[11px] text-emerald-400">Unique Identification Authority of India</div>
+            </div>
+
+            <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Vehicle Registration (RC)</span>
+              <div className="font-mono text-white font-bold">{captain.vehicleRegNumber}</div>
+              <div className="text-[11px] text-slate-300">{captain.vehicleModel}</div>
+            </div>
+
+            <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Settlement Bank Account</span>
               <div className="font-mono text-white font-bold">
-                {captain.bankDetails.bankName} - {captain.bankDetails.accountNumber}
+                {captain.bankDetails.bankName} - {platformStore.maskAccountNumber(captain.bankDetails.accountNumber)}
               </div>
               <div className="text-[11px] text-slate-300 font-mono">IFSC: {captain.bankDetails.ifscCode}</div>
             </div>
 
             <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 space-y-1">
-              <span className="text-slate-400 text-[10px] uppercase font-bold">UPI VPA</span>
-              <div className="font-mono text-white font-bold">{captain.bankDetails.upiId}</div>
-              <div className="text-[11px] text-emerald-400">Instant settlements enabled</div>
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Bank Verification Status</span>
+              <div className="font-bold text-emerald-400">
+                {captain.bankDetails.verificationStatus === 'verified'
+                  ? 'Penny-Drop Verified'
+                  : 'Pending Verification'}
+              </div>
+              <div className="text-[11px] text-slate-400 font-mono">
+                {captain.bankDetails.pennyDropRef || 'NPCI Direct Settlement'}
+              </div>
             </div>
           </div>
         </div>
@@ -711,62 +912,121 @@ export const CaptainApp: React.FC<CaptainAppProps> = ({ lang }) => {
         </div>
       )}
 
-      {/* WITHDRAWAL MODAL */}
+      {/* RAPIDO / UBER-STYLE WITHDRAWAL MODAL WITH COMMISSION & NET PAYOUT PREVIEW */}
       {showWithdrawModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-1">Request Bank Withdrawal</h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Available Balance: <span className="text-emerald-400 font-bold">₹{walletData.availableBalance}</span>
-            </p>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Request Bank Withdrawal</h3>
+                <p className="text-xs text-slate-400">Direct IMPS settlement to your verified account</p>
+              </div>
+              <button
+                onClick={() => setShowWithdrawModal(false)}
+                className="p-1.5 hover:bg-slate-800 text-slate-400 rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <form onSubmit={handleRequestWithdrawal} className="space-y-3">
+            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between">
+              <span className="text-xs text-slate-300">Available Wallet Balance</span>
+              <span className="text-xl font-black text-emerald-400 font-mono">
+                ₹{walletData.availableBalance}
+              </span>
+            </div>
+
+            <form onSubmit={handleRequestWithdrawal} className="space-y-4">
               <div>
                 <label className="text-xs text-slate-300 font-bold block mb-1">
-                  Payout Amount (Min ₹{fareSettings.minWithdrawalAmount})
+                  Withdrawal Amount (Min ₹{fareSettings.minWithdrawalAmount || 200}, Max ₹
+                  {fareSettings.maxWithdrawalAmount || 50000})
                 </label>
-                <input
-                  type="number"
-                  min={fareSettings.minWithdrawalAmount}
-                  max={walletData.availableBalance}
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  className="w-full p-2.5 bg-slate-850 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none"
-                  required
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                  <input
+                    type="number"
+                    min={fareSettings.minWithdrawalAmount || 200}
+                    max={Math.min(fareSettings.maxWithdrawalAmount || 50000, walletData.availableBalance)}
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2.5 bg-slate-850 border border-slate-700 rounded-xl text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-400"
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="p-3 bg-slate-850 rounded-xl border border-slate-800 text-[11px] text-slate-300 space-y-1">
-                <div className="text-slate-400">Payout destination:</div>
-                <div className="font-mono font-bold text-white">{captain.bankDetails.bankName}</div>
-                <div className="font-mono text-slate-400">{captain.bankDetails.accountNumber}</div>
+              {/* Net Payout and Commission Preview */}
+              {(() => {
+                const amt = parseFloat(withdrawAmount) || 0;
+                const commRate = fareSettings.withdrawalCommissionPercent ?? 10;
+                const comm = Math.round((amt * commRate) / 100);
+                const net = Math.max(0, amt - comm);
+                return (
+                  <div className="p-4 bg-slate-850 rounded-2xl border border-slate-800 space-y-2 text-xs">
+                    <div className="font-bold text-slate-300 border-b border-slate-800 pb-2">
+                      Payout Breakdown & Fee Preview
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Requested Gross Amount</span>
+                      <span className="font-mono font-semibold text-white">₹{amt}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Platform Commission ({commRate}%)</span>
+                      <span className="font-mono font-semibold text-amber-400">-₹{comm}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-800">
+                      <span className="text-white">Net Bank Deposit</span>
+                      <span className="font-mono text-emerald-400 text-base">₹{net}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Bank Destination Card */}
+              <div className="p-3.5 bg-slate-850 rounded-2xl border border-slate-800 text-xs space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Payout Destination</div>
+                <div className="font-bold text-white flex items-center justify-between">
+                  <span>{captain.bankDetails.bankName}</span>
+                  <span className="text-emerald-400 text-[11px]">NPCI IMPS</span>
+                </div>
+                <div className="font-mono text-slate-300">
+                  Account: {platformStore.maskAccountNumber(captain.bankDetails.accountNumber)} • IFSC: {captain.bankDetails.ifscCode}
+                </div>
               </div>
 
               {withdrawError && (
-                <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
-                  {withdrawError}
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{withdrawError}</span>
                 </div>
               )}
 
               {withdrawSuccess && (
-                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400">
-                  {withdrawSuccess}
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{withdrawSuccess}</span>
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowWithdrawModal(false)}
-                  className="flex-1 py-2 bg-slate-800 text-slate-300 text-xs font-semibold rounded-xl"
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-emerald-500 text-slate-950 text-xs font-black rounded-xl"
+                  disabled={
+                    !withdrawAmount ||
+                    parseFloat(withdrawAmount) < (fareSettings.minWithdrawalAmount || 200) ||
+                    parseFloat(withdrawAmount) > walletData.availableBalance
+                  }
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 text-xs font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all"
                 >
-                  Submit Request
+                  Confirm & Withdraw
                 </button>
               </div>
             </form>

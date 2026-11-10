@@ -80,6 +80,10 @@ export interface FareSettings {
   peakHourSurgeMultiplier: number; // 1.35x
   cancellationFee: number; // ₹35
   minWithdrawalAmount: number; // ₹200
+  maxWithdrawalAmount: number; // ₹50000
+  withdrawalCommissionPercent: number; // 10% admin configurable
+  withdrawalsSuspended: boolean; // safety freeze
+  withdrawalSuspensionReason?: string;
   // Separate vehicle pricing matrix for standard RUBI CAB and RUBI CAB PINK
   rubiCabCategories: Record<VehicleType, ServiceFareConfig>;
   rubiPinkCategories: Record<VehicleType, ServiceFareConfig>;
@@ -183,6 +187,18 @@ export interface CustomerProfile {
   totalRides: number;
 }
 
+export type KYCStatus =
+  | 'KYC Not Started'
+  | 'KYC Incomplete'
+  | 'Submitted'
+  | 'Under Verification'
+  | 'Approved'
+  | 'Rejected'
+  | 'Reverification Required'
+  | 'Suspended';
+
+export type BankVerificationStatus = 'unverified' | 'penny_drop_pending' | 'verified' | 'failed';
+
 export type CaptainApprovalStatus =
   | 'draft'
   | 'submitted'
@@ -190,7 +206,8 @@ export type CaptainApprovalStatus =
   | 'approved'
   | 'rejected'
   | 'suspended'
-  | 'pending';
+  | 'pending'
+  | 'reverification_required';
 
 export interface CaptainProfile {
   id: string;
@@ -234,6 +251,7 @@ export interface CaptainProfile {
 
   // Status and Timestamps
   approvalStatus: CaptainApprovalStatus;
+  kycStatus?: KYCStatus;
   rejectionReason?: string;
   submittedAt?: number;
   approvedAt?: number;
@@ -251,8 +269,12 @@ export interface CaptainProfile {
     bankName: string;
     accountNumber: string;
     ifscCode: string;
-    upiId: string;
+    accountType?: 'savings' | 'current';
+    upiId?: string;
     verified: boolean;
+    verificationStatus?: BankVerificationStatus;
+    pennyDropRef?: string;
+    verifiedAt?: number;
   };
 }
 
@@ -400,19 +422,45 @@ export interface Booking {
 
 export type PaymentMode = 'upi' | 'card' | 'netbanking' | 'cash' | 'wallet';
 
-export type WithdrawalStatus = 'pending' | 'approved' | 'processing' | 'successful' | 'rejected';
+export type WithdrawalStatus =
+  | 'Requested'
+  | 'Processing'
+  | 'Paid'
+  | 'Failed'
+  | 'Reversed'
+  | 'Rejected'
+  | 'pending'
+  | 'approved'
+  | 'processing'
+  | 'successful'
+  | 'rejected';
 
 export interface WalletTransaction {
   id: string;
   transactionRef: string;
   captainId: string;
-  type: 'ride_earning' | 'commission_deduction' | 'withdrawal' | 'incentive' | 'penalty';
-  amount: number;
-  description: string;
-  tamilDescription?: string;
+  type:
+    | 'ride_earning'
+    | 'commission_deduction'
+    | 'cash_collection_offset'
+    | 'withdrawal'
+    | 'withdrawal_hold'
+    | 'withdrawal_refund'
+    | 'incentive'
+    | 'penalty';
+  amount: number; // positive for credit, negative for debit
+  creditAmount?: number;
+  debitAmount?: number;
+  commissionAmount?: number;
+  netAmount?: number;
+  previousBalance?: number;
+  balanceAfter: number;
+  paymentReference?: string;
   bookingId?: string;
   withdrawalId?: string;
-  balanceAfter: number;
+  description: string;
+  tamilDescription?: string;
+  status?: 'completed' | 'pending' | 'reversed' | 'failed';
   createdAt: number;
 }
 
@@ -421,17 +469,24 @@ export interface WithdrawalRequest {
   withdrawalRef: string;
   captainId: string;
   captainName: string;
-  amount: number;
+  amount: number; // gross requested withdrawal
+  commissionRatePercent?: number; // admin configurable, e.g., 10%
+  commissionDeducted?: number; // e.g., ₹100
+  netPayoutAmount?: number; // e.g., ₹900
   bankDetails: {
+    accountHolderName?: string;
     bankName: string;
     accountNumber: string;
     ifscCode: string;
-    upiId: string;
+    accountType?: 'savings' | 'current';
+    upiId?: string;
   };
   status: WithdrawalStatus;
   requestedAt: number;
   processedAt?: number;
   payoutTxnId?: string;
+  payoutProvider?: 'RazorpayX Direct IMPS' | 'Cashfree Payouts' | 'PayTM Bank Transfer';
+  failureReason?: string;
   adminNotes?: string;
 }
 
